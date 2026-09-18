@@ -389,6 +389,29 @@ describe('SubagentModelSelectionConfig', () => {
     await ctx.fiber.dispose()
   })
 
+  it('samples the current setting for a child whose parent captured no decision', async () => {
+    const ctx = await boot()
+    // The parent Session predates the opt-in: it holds no policy event, so the
+    // fixed-route parent must not pin its children to the fixed-route schema.
+    const parent = await createAgent(ctx, 'legacy-parent')
+    expect(selectable(ctx, parent)).toBe(false)
+
+    await ctx.settings.update(SUBAGENT_MODEL_SELECTION_SETTINGS_NAMESPACE, {
+      enabled: true,
+      allowedModels: ALLOWED_MODELS,
+    })
+    const child = await createAgent(ctx, 'legacy-parent-child', {
+      meta: { parentSession: parent.id, origin: 'subagent' },
+    })
+    expect(selectable(ctx, child)).toBe(true)
+    expect(subagentModelSelectionPolicy(ctx.sessionProjections, child.session)).toEqual(ALLOWED_MODELS)
+
+    // The parent's own captured decision stays absent: sampling is per Session.
+    expect(subagentModelSelectionPolicy(ctx.sessionProjections, parent.session)).toBeUndefined()
+    expect(selectable(ctx, parent)).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
   it('requires both the Host setting owner and a scoped standing preset', async () => {
     const withoutSettings = new Context()
     await mountAgentLoopTestDependencies(withoutSettings)

@@ -635,7 +635,14 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
         allowedModels = parent === undefined
           ? undefined
           : subagentModelSelectionPolicy(ctx.sessionProjections, parent)
-      } else if (freshSession) {
+      }
+      // A child whose parent never captured a decision (the parent Session
+      // predates the opt-in, or was resumed without the policy event) would
+      // otherwise be permanently fixed-route, which also pins every Agent-Team
+      // teammate to the Lead route. Sample the current Host setting for it, the
+      // same way a fresh top-level Session does. Resumed top-level Sessions keep
+      // their captured decision: their tool schema must stay stable mid-history.
+      if (allowedModels === undefined && (parentId !== undefined || freshSession)) {
         const current = settings.current()
         allowedModels = current.enabled ? current.allowedModels : undefined
       }
