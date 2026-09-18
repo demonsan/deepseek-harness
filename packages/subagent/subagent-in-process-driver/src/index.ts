@@ -225,14 +225,21 @@ function readResult(
   // The seam's canonical selection rule; a partial answer survives cancel and truncation.
   const output: ContentBlock[] = finalAssistantOutput(own) ?? []
   const recorded = toStopReason(lastEnd?.data.reason)
+  // Surface the child's structured LLM failure. Without it a failed in-process
+  // child reaches the caller as a bare "subagent run failed": the real cause
+  // (auth, TLS, rate limit, malformed route) would live only in Host logs.
+  const failure = lastEnd?.data.reason.kind === 'error' ? lastEnd.data.reason.error : undefined
+  const diagnostic = failure === undefined
+    ? {}
+    : { diagnostic: `child turn failed (${failure.code}): ${failure.message}` }
   // Disposal can tear the owner down before the loop records its ordinary
   // `aborted` end, yielding `disposed` instead.
   const stopReason: SubagentStopReason = cancelled && recorded !== 'completed' ? 'aborted' : recorded
   if (structured !== undefined) {
     if (structured.captured !== undefined) {
-      return { output, structured: structured.captured.value, stopReason }
+      return { output, structured: structured.captured.value, stopReason, ...diagnostic }
     }
-    if (stopReason === 'completed') return { output, stopReason: cancelled ? 'aborted' : 'error' }
+    if (stopReason === 'completed') return { output, stopReason: cancelled ? 'aborted' : 'error', ...diagnostic }
   }
-  return { output, stopReason }
+  return { output, stopReason, ...diagnostic }
 }
