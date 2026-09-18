@@ -70,6 +70,9 @@ const teamMemberSnapshotSchema = z.object({
   description: z.string(),
   provider: z.string(),
   context: z.enum(['fresh', 'fork']),
+  // Optional so every member record written before per-teammate routes still
+  // replays; the event version stays 2 because older records remain valid.
+  model: z.string().optional(),
   phase: z.enum(['provisioning', 'active', 'failed']),
   error: z.string().optional(),
 }).strict() as z.ZodType<TeamMemberSnapshot>
@@ -247,7 +250,10 @@ function applyCurrentTeamEvent(state: TeamState, event: TeamSessionEvent): void 
       if (prior === undefined) {
         if (member.phase !== 'provisioning') throw new Error(`teammate "${member.name}" must begin provisioning`)
       } else {
-        if (prior.name !== member.name || prior.provider !== member.provider || prior.context !== member.context) {
+        if (prior.name !== member.name
+          || prior.provider !== member.provider
+          || prior.context !== member.context
+          || prior.model !== member.model) {
           throw new Error(`teammate "${member.id}" changed immutable identity fields`)
         }
         if (prior.phase !== 'provisioning' || member.phase === 'provisioning') {

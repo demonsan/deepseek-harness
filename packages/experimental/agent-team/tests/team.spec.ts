@@ -109,7 +109,11 @@ function spawn(
   ctx: Context,
   lead: Agent,
   name: string,
-  options: { context?: 'fresh' | 'fork'; provider?: string } = {},
+  options: {
+    context?: 'fresh' | 'fork'
+    provider?: string
+    agentOptions?: { provider?: string; model?: string; reasoningEffort?: string }
+  } = {},
 ) {
   const context = options.context ?? 'fresh'
   return ctx.agentTeams.spawnTeammate(lead, {
@@ -118,6 +122,7 @@ function spawn(
     prompt: content(`${name} initial`),
     context,
     provider: options.provider ?? (context === 'fork' ? 'fork' : 'spawn'),
+    ...options.agentOptions === undefined ? {} : { agentOptions: options.agentOptions },
     signal: SIGNAL,
   })
 }
@@ -416,6 +421,27 @@ describe('Team identity and provisioning', () => {
     await teamInternals(second.ctx).roster.reconcileProvisioning(second.lead, SIGNAL)
     release.resolve(undefined)
     await rejected
+  })
+
+  it('keeps reporting a teammate-specific model after its Activation is gone', async () => {
+    // The runtime value disappears with the Activation, and the Lead route is
+    // the wrong answer once members differ: an inactive teammate must still be
+    // reported with the model it was created on.
+    const { ctx, lead } = await setup([])
+    vi.spyOn(teamInternals(ctx).roster, 'checkpointInitialPrompt').mockResolvedValueOnce()
+    vi.spyOn(ctx.subagents, 'startContinuable').mockImplementationOnce(async spec => ({
+      childId: spec.childId!,
+      messageId: createUserMessage({ content: content('accepted'), source: { kind: 'user' } }).id,
+    }))
+    const spawned = await spawn(ctx, lead, 'routed-worker', {
+      agentOptions: { provider: 'other-provider', model: 'other-model' },
+    })
+
+    expect(spawned.member).toMatchObject({ status: 'inactive', model: 'other-model' })
+    expect(durable(lead).members[0]).toMatchObject({ model: 'other-model' })
+    expect(ctx.agentTeams.listMembers(lead)[1]).toMatchObject({ name: 'routed-worker', model: 'other-model' })
+    // The Lead pseudo-row keeps its own route rather than the teammate's.
+    expect(ctx.agentTeams.listMembers(lead)[0]?.model).not.toBe('other-model')
   })
 
   it('validates names and permits only the Lead to create or interrupt teammates', async () => {

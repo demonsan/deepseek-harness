@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
@@ -139,7 +140,10 @@ export class TeamRoster {
     }]
     for (const member of state.members) {
       const live = this.ctx.agents.get(member.id)
-      const model = live?.options.model ?? root.options.model
+      // Live truth first, then this member's own durable record. Only a member
+      // recorded before per-teammate routes falls back to the Lead route, which
+      // is what it actually inherited.
+      const model = live?.options.model ?? member.model ?? root.options.model
       result.push({
         id: member.id,
         name: member.name,
@@ -263,6 +267,12 @@ export class TeamRoster {
       description,
       provider: requiredText(request.provider, 'provider', 200),
       context: request.context,
+      // Only an explicit per-teammate override is durable. A teammate that
+      // inherits the Lead route keeps reading it from the Lead, so a later Lead
+      // route change stays reflected instead of freezing a stale copy here.
+      ...request.agentOptions?.model === undefined
+        ? {}
+        : { model: request.agentOptions.model },
       phase: 'provisioning',
     }
 
@@ -286,6 +296,15 @@ export class TeamRoster {
         request: {
           prompt: request.prompt,
           parent: root,
+          // Optional per-teammate route. The continuation service merges it over
+          // the Lead route, so an omitted field keeps the Lead's own value.
+          ...request.agentOptions === undefined ? {} : { agentOptions: {
+            ...request.agentOptions.provider === undefined ? {} : { provider: request.agentOptions.provider },
+            ...request.agentOptions.model === undefined ? {} : { model: request.agentOptions.model },
+            ...request.agentOptions.reasoningEffort === undefined
+              ? {}
+              : { reasoningEffort: ReasoningEffortId(request.agentOptions.reasoningEffort) },
+          } },
         },
         signal,
       })
@@ -444,7 +463,11 @@ export class TeamRoster {
       description: member.description,
       provider: member.provider,
       context: member.context,
-      ...live?.options.model === undefined ? {} : { model: live.options.model },
+      // Same precedence as the roster listing: live truth, then this member's
+      // own durable record. A teammate that already settled keeps its route.
+      ...(live?.options.model ?? member.model) === undefined
+        ? {}
+        : { model: live?.options.model ?? member.model },
       diagnostics: [],
     }
   }

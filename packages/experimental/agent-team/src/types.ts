@@ -50,6 +50,12 @@ export interface TeamMemberSnapshot {
   readonly description: string
   readonly provider: string
   readonly context: 'fresh' | 'fork'
+  /**
+   * Effective conversation model at creation. Durable because the runtime value
+   * disappears with the Activation: without it an inactive teammate would be
+   * reported with the Lead's model, which is wrong as soon as members differ.
+   */
+  readonly model?: string
   readonly phase: TeamMemberPhase
   readonly error?: string
 }
@@ -147,7 +153,19 @@ export interface SpawnTeammateRequest {
   readonly prompt: ContentBlock[]
   readonly context: 'fresh' | 'fork'
   readonly provider: string
+  /**
+   * Optional child LLM route for this teammate, merged over the Lead route by
+   * the continuation service. Omit to inherit the Lead's provider and model.
+   */
+  readonly agentOptions?: TeammateAgentOptions
   readonly signal: AbortSignal
+}
+
+/** Exact child LLM route overrides for one teammate. */
+export interface TeammateAgentOptions {
+  readonly provider?: string
+  readonly model?: string
+  readonly reasoningEffort?: string
 }
 
 /** Result after one teammate reaches a durable active or failed edge. */

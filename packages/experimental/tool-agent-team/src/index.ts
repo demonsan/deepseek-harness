@@ -34,7 +34,51 @@ The Team Lead and all teammates share the same working directory and filesystem.
 
 Prefer read/edit/write for file changes. If a file operation returns FS_STALE_VERSION, read the current file, rebase your intended change onto the new content, and retry. Bash, formatters, code generators, and scripts are not fully protected by the filesystem version guard; coordinate them explicitly and have the Lead review the final diff and run tests.
 
-send_message steers a running target at its nearest step boundary, starts an idle target, and cold-resumes an inactive teammate. A delivered peer item starts with its stable message id and sender name. A successful send is already durable even when its result says queued; do not resend it. Shared-task workflow is list, get, claim with the current revision, perform the work, then complete. Task readiness never starts an owner. Before wait_agent, use list_agents and make sure another required member is running or provisioning; use send_message first when the required member is inactive. wait_agent observes only changes after that call starts, never wakes a member, and returns noProgress immediately when no other member can produce a change. Re-list after wakeup or timeout. The Lead must wait for required teammates before giving the final answer.`
+send_message steers a running target at its nearest step boundary, starts an idle target, and cold-resumes an inactive teammate. A delivered peer item starts with its stable message id and sender name. A successful send is already durable even when its result says queued; do not resend it. Shared-task workflow is list, get, claim with the current revision, perform the work, then complete. Task readiness never starts an owner. Before wait_agent, use list_agents and make sure another required member is running or provisioning; use send_message first when the required member is inactive. wait_agent observes only changes after that call starts, never wakes a member, and returns noProgress immediately when no other member can produce a change. Re-list after wakeup or timeout. The Lead must wait for required teammates before giving the final answer.
+
+Team tool parameter names are exact, so write them verbatim instead of guessing a plausible synonym: send_message({ target, message }), spawn_teammate({ name, description, prompt, context?, provider?, model?, reasoning_effort? }), team_task_create({ subject, description, blocked_by?, write_scopes? }), team_task_get({ task_id }), team_task_update({ task_id, expected_revision, action }), interrupt_agent({ target }), wait_agent({ timeout_ms? }). A call written as { to, content } or { body } is rejected outright and costs a whole step.`
+
+/**
+ * Structural view of the optional Host model-selection setting owner
+ * (`@deepseek-ai/dsh-tool-subagent/model-selection-settings`). Read
+ * structurally so this experimental package needs no dependency on the
+ * delegation tool: an absent owner simply forbids teammate route selection.
+ */
+interface ModelSelectionSettingsView {
+  current(): { enabled: boolean; allowedModels: readonly { provider: string; model: string }[] }
+}
+
+/**
+ * Validate one optional teammate route against the Host allowlist.
+ * @param ctx - Context that may own the model-selection setting.
+ * @param args - the model-supplied route fields.
+ * @returns exact route overrides, or undefined to inherit the Lead route.
+ */
+function teammateRoute(ctx: Context, args: {
+  provider?: string
+  model?: string
+  reasoning_effort?: string
+}): { provider?: string; model?: string; reasoningEffort?: string } | undefined {
+  const { provider, model } = args
+  const reasoningEffort = args.reasoning_effort
+  if (provider === undefined && model === undefined) {
+    // Effort alone re-uses the inherited route, exactly like the delegation tool.
+    return reasoningEffort === undefined ? undefined : { reasoningEffort }
+  }
+  if (provider === undefined || model === undefined) {
+    throw new Error('spawn_teammate: supply `provider` and `model` together, or omit both to inherit the Lead route')
+  }
+  const settings = (ctx as unknown as { get(name: string): unknown })
+    .get('subagentModelSelection') as ModelSelectionSettingsView | undefined
+  const current = settings?.current()
+  if (current === undefined || !current.enabled) {
+    throw new Error('spawn_teammate: teammate model selection is disabled for this Host; omit `provider` and `model`')
+  }
+  if (!current.allowedModels.some(route => route.provider === provider && route.model === model)) {
+    throw new Error(`spawn_teammate: child LLM route "${provider}/${model}" is not allowed for this Session`)
+  }
+  return { provider, model, ...reasoningEffort === undefined ? {} : { reasoningEffort } }
+}
 
 const ACTIVE_WAIT_STATUSES: ReadonlySet<TeamMemberView['status']> = new Set(['running', 'provisioning'])
 const NO_ACTIVE_PEER_MESSAGE = 'No other Team member is running or provisioning. wait_agent cannot make progress or wake inactive teammates. Re-list with list_agents and team_task_list, then use send_message to wake each required inactive teammate before waiting again.'
@@ -179,11 +223,24 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
           enum: ['fresh', 'fork'],
           description: 'fresh starts without Lead history; fork inherits completed Lead turns. Defaults to fresh.',
         },
+        provider: {
+          type: 'string',
+          description: 'LLM provider route for the teammate. Supply together with model; omit both to inherit the Lead route. Allowed routes are the ones list_subagent_models reports.',
+        },
+        model: {
+          type: 'string',
+          description: 'Exact model id for the teammate, interpreted by the selected provider. Requires provider.',
+        },
+        reasoning_effort: {
+          type: 'string',
+          description: 'Adapter-owned reasoning effort for the effective teammate route. Omit to use the selected model\'s default, or the inherited effort when the route is unchanged. A fork teammate that changes route cannot reuse the inherited prefix.',
+        },
       },
       output: jsonOutput(SPAWN_VALUE_SCHEMA),
       async execute(args, exec) {
         const agent = callingAgent(exec.agent, 'spawn_teammate')
         const context = args.context ?? 'fresh'
+        const agentOptions = teammateRoute(ctx, args)
         return await ctx.agentTeams.spawnTeammate(agent, {
           name: args.name,
           description: args.description,
@@ -193,6 +250,7 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
           ],
           context,
           provider: context === 'fork' ? config.forkProvider : config.freshProvider,
+          ...agentOptions === undefined ? {} : { agentOptions },
           signal: exec.signal,
         })
       },
