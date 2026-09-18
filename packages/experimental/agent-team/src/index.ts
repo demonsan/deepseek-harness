@@ -18,6 +18,7 @@ import { TeamId, TeamTaskId } from './types.ts'
 import type {
   Config,
   CreateTeamTaskRequest,
+  ReplaceTeammateRequest,
   SendTeamMessageRequest,
   SendTeamMessageResult,
   SpawnTeammateRequest,
@@ -152,6 +153,16 @@ export class TeamService extends TypertRemoteService {
    */
   async spawnTeammate(caller: Agent, request: SpawnTeammateRequest): Promise<SpawnTeammateResult> {
     return await this.roster.spawn(caller, request)
+  }
+
+  /**
+   * Replace one settled teammate with a new route under the same name.
+   * @param caller - exact live Lead Agent.
+   * @param request - teammate name, replacement prompt, optional route, and cancellation.
+   * @returns the replacement's active roster row.
+   */
+  async replaceTeammate(caller: Agent, request: ReplaceTeammateRequest): Promise<SpawnTeammateResult> {
+    return await this.roster.replace(caller, request)
   }
 
   /**

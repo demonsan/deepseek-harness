@@ -100,6 +100,7 @@ const MEMBER_VIEW_SCHEMA = {
     provider: { type: 'string' },
     context: { type: 'string', enum: ['fresh', 'fork'] },
     model: { type: 'string' },
+    supersededBy: { type: 'string' },
     diagnostics: { type: 'array', required: true, items: { type: 'string' } },
   },
 } as const
@@ -250,6 +251,41 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
           ],
           context,
           provider: context === 'fork' ? config.forkProvider : config.freshProvider,
+          ...agentOptions === undefined ? {} : { agentOptions },
+          signal: exec.signal,
+        })
+      },
+    })))
+
+    register(scoped.tools.register(defineTool({
+      name: 'replace_teammate',
+      description: 'Replace one settled teammate with a new LLM route under the same name. The old member is superseded: it keeps its own id, history, route, and outcome, and its name and roster slot are released to the replacement. Use it to recover a teammate started on the wrong route, instead of burning a second name. The target must not be running; interrupt it first. Only the Team Lead may call this tool.',
+      parameters: {
+        name: { type: 'string', required: true, description: 'Name of the teammate to replace. The replacement answers to the same name.' },
+        prompt: { type: 'string', required: true, description: 'Complete initial task for the replacement. It starts with no memory of the superseded member.' },
+        provider: {
+          type: 'string',
+          description: 'LLM provider route for the replacement. Supply together with model; omit both to inherit the Lead route. Allowed routes are the ones list_subagent_models reports.',
+        },
+        model: {
+          type: 'string',
+          description: 'Exact model id for the replacement, interpreted by the selected provider. Requires provider.',
+        },
+        reasoning_effort: {
+          type: 'string',
+          description: 'Adapter-owned reasoning effort for the effective replacement route. Omit to use the selected model\'s default.',
+        },
+      },
+      output: jsonOutput(SPAWN_VALUE_SCHEMA),
+      async execute(args, exec) {
+        const agent = callingAgent(exec.agent, 'replace_teammate')
+        const agentOptions = teammateRoute(ctx, args)
+        return await ctx.agentTeams.replaceTeammate(agent, {
+          name: args.name,
+          prompt: [
+            { type: 'text', text: `<system-reminder>\nYou are teammate "${args.name.trim()}".\n</system-reminder>\n\n` },
+            { type: 'text', text: args.prompt },
+          ],
           ...agentOptions === undefined ? {} : { agentOptions },
           signal: exec.signal,
         })

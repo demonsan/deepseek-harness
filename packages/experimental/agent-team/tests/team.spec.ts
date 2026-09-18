@@ -444,6 +444,74 @@ describe('Team identity and provisioning', () => {
     expect(ctx.agentTeams.listMembers(lead)[0]?.model).not.toBe('other-model')
   })
 
+  it('supersedes a settled teammate without consuming its name or a roster slot', async () => {
+    // Recovering a bad route must not cost a second name and a second slot,
+    // and the superseded row must keep its own id, route, and outcome.
+    const { ctx, lead } = await setup([], { maxMembers: 2 })
+    const settleImmediately = (): void => {
+      vi.spyOn(teamInternals(ctx).roster, 'checkpointInitialPrompt').mockResolvedValueOnce()
+      vi.spyOn(ctx.subagents, 'startContinuable').mockImplementationOnce(async spec => ({
+        childId: spec.childId!,
+        messageId: createUserMessage({ content: content('accepted'), source: { kind: 'user' } }).id,
+      }))
+    }
+
+    settleImmediately()
+    const first = await spawn(ctx, lead, 'router', { agentOptions: { provider: 'bad', model: 'bad-model' } })
+    settleImmediately()
+    await spawn(ctx, lead, 'other-worker')
+    await expect(spawn(ctx, lead, 'third-worker')).rejects.toMatchObject({ code: 'TEAM_MEMBER_LIMIT' })
+
+    // Admitted while the roster is full: supersession releases the slot in the
+    // same transaction that claims it.
+    settleImmediately()
+    const second = await ctx.agentTeams.replaceTeammate(lead, {
+      name: 'router',
+      prompt: content('replacement task'),
+      agentOptions: { provider: 'good', model: 'good-model' },
+      signal: SIGNAL,
+    })
+    expect(second.member).toMatchObject({ name: 'router', model: 'good-model' })
+    expect(second.member.id).not.toBe(first.member.id)
+
+    const members = durable(lead).members
+    expect(members).toHaveLength(3)
+    expect(members[0]).toMatchObject({
+      id: first.member.id,
+      name: 'router',
+      model: 'bad-model',
+      phase: 'active',
+      supersededBy: second.member.id,
+    })
+    expect(members[2]).toMatchObject({ id: second.member.id, name: 'router', model: 'good-model', phase: 'active' })
+
+    // The chain stays visible, the name answers to the replacement, and the
+    // superseded row still does not free a slot for an unrelated member.
+    const rows = ctx.agentTeams.listMembers(lead)
+    expect(rows.find(row => row.id === first.member.id)?.supersededBy).toBe(second.member.id)
+    expect(rows.find(row => row.id === second.member.id)?.supersededBy).toBeUndefined()
+    await expect(spawn(ctx, lead, 'router')).rejects.toMatchObject({ code: 'TEAM_MEMBER_NAME_TAKEN' })
+    await expect(spawn(ctx, lead, 'third-worker')).rejects.toMatchObject({ code: 'TEAM_MEMBER_LIMIT' })
+  })
+
+  it('refuses to replace an unknown or live teammate', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    await expect(ctx.agentTeams.replaceTeammate(lead, {
+      name: 'missing-worker',
+      prompt: content('x'),
+      signal: SIGNAL,
+    })).rejects.toMatchObject({ code: 'TEAM_MEMBER_NOT_FOUND' })
+
+    const spawned = await spawn(ctx, lead, 'busy-worker')
+    await waitRunning(ctx, spawned.member.id)
+    // A live Activation owns turns, an inbox, and possibly task ownership.
+    await expect(ctx.agentTeams.replaceTeammate(lead, {
+      name: 'busy-worker',
+      prompt: content('x'),
+      signal: SIGNAL,
+    })).rejects.toMatchObject({ code: 'TEAM_MEMBER_LIVE' })
+  })
+
   it('validates names and permits only the Lead to create or interrupt teammates', async () => {
     const { ctx, lead } = await setup(['hang'])
     for (const name of ['Lead', 'lead', '-bad', 'bad-', 'bad_name', 'x'.repeat(65)]) {

@@ -58,6 +58,13 @@ export interface TeamMemberSnapshot {
   readonly model?: string
   readonly phase: TeamMemberPhase
   readonly error?: string
+  /**
+   * Identity of the member that replaced this one. Supersession is orthogonal
+   * to {@link phase}: a superseded row keeps the provisioning outcome it
+   * actually reached, so "which route ran this work, and did it succeed?"
+   * stays answerable after a replacement. A row carrying it is final.
+   */
+  readonly supersededBy?: SessionId
 }
 
 /** Current runtime-enriched roster row. */
@@ -70,6 +77,8 @@ export interface TeamMemberView {
   readonly provider?: string
   readonly context?: 'fresh' | 'fork'
   readonly model?: string
+  /** Set when a later member replaced this row; the replacement shares its name. */
+  readonly supersededBy?: SessionId
   readonly diagnostics: string[]
 }
 
@@ -166,6 +175,22 @@ export interface TeammateAgentOptions {
   readonly provider?: string
   readonly model?: string
   readonly reasoningEffort?: string
+}
+
+/**
+ * Input for replacing one settled teammate with a new route under the same
+ * name. The superseded row keeps its own id, history, route, and outcome; the
+ * replacement is a new member, never a mutation of the old one.
+ */
+export interface ReplaceTeammateRequest {
+  readonly name: string
+  readonly prompt: ContentBlock[]
+  /**
+   * Child LLM route for the replacement. Omit to inherit the Lead route, which
+   * is how a replacement recovers a teammate stuck on a bad explicit route.
+   */
+  readonly agentOptions?: TeammateAgentOptions
+  readonly signal: AbortSignal
 }
 
 /** Result after one teammate reaches a durable active or failed edge. */

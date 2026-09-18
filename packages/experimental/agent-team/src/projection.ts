@@ -75,6 +75,9 @@ const teamMemberSnapshotSchema = z.object({
   model: z.string().optional(),
   phase: z.enum(['provisioning', 'active', 'failed']),
   error: z.string().optional(),
+  // Optional for the same reason as `model`: records written before
+  // replacement existed still replay, so the event version stays 2.
+  supersededBy: sessionIdSchema.optional(),
 }).strict() as z.ZodType<TeamMemberSnapshot>
 
 const teamTaskSnapshotSchema = z.object({
@@ -243,12 +246,18 @@ function applyCurrentTeamEvent(state: TeamState, event: TeamSessionEvent): void 
       const member = event.data.member
       const index = state.members.findIndex(candidate => candidate.id === member.id)
       const prior = state.members[index]
-      const named = state.members.find(candidate => candidate.name === member.name)
+      // Supersession releases the name: the replacement is a new member that
+      // carries the same name forward, so only live rows compete for it.
+      const named = state.members.find(candidate =>
+        candidate.name === member.name && candidate.supersededBy === undefined)
       if (named !== undefined && named.id !== member.id) {
         throw new Error(`teammate name "${member.name}" is reused by another member`)
       }
       if (prior === undefined) {
         if (member.phase !== 'provisioning') throw new Error(`teammate "${member.name}" must begin provisioning`)
+        if (member.supersededBy !== undefined) {
+          throw new Error(`teammate "${member.name}" cannot begin superseded`)
+        }
       } else {
         if (prior.name !== member.name
           || prior.provider !== member.provider
@@ -256,7 +265,18 @@ function applyCurrentTeamEvent(state: TeamState, event: TeamSessionEvent): void 
           || prior.model !== member.model) {
           throw new Error(`teammate "${member.id}" changed immutable identity fields`)
         }
-        if (prior.phase !== 'provisioning' || member.phase === 'provisioning') {
+        if (prior.supersededBy !== undefined) {
+          throw new Error(`teammate "${member.name}" is superseded and admits no further change`)
+        }
+        if (prior.phase === 'provisioning') {
+          if (member.phase === 'provisioning' || member.supersededBy !== undefined) {
+            throw new Error(`teammate "${member.name}" has an invalid ${prior.phase} -> ${member.phase} transition`)
+          }
+        } else if (member.supersededBy === undefined
+          || member.phase !== prior.phase
+          || member.error !== prior.error) {
+          // Supersession is the only edge a settled row admits, and it rewrites
+          // nothing but the pointer to its replacement.
           throw new Error(`teammate "${member.name}" has an invalid ${prior.phase} -> ${member.phase} transition`)
         }
       }
