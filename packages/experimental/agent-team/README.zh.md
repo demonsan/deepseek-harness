@@ -58,11 +58,17 @@ kind: "package-reference"
 
 ### Teammate
 
-请 Lead 创建 teammate：给它一个唯一的小写名字（例如 `reviewer`）并描述其职责。teammate 可以 fresh 启动（不携带 Lead 对话的任何记忆），也可以作为 fork 启动（继承 Lead 已完成的轮次）；创建请求决定用哪种。teammate 名字是永久的——即使创建失败的 teammate 也保留其名字，任何名字都不会被复用。
+请 Lead 创建 teammate：给它一个唯一的小写名字（例如 `reviewer`）并描述其职责。teammate 可以 fresh 启动（不携带 Lead 对话的任何记忆），也可以作为 fork 启动（继承 Lead 已完成的轮次）；创建请求决定用哪种。teammate 名字是永久的——即使创建失败的 teammate 也保留其名字，任何无关成员都不会占用一个仍在使用的名字。
 
-roster 显示每个成员的职责（`lead` 或 `teammate`）与当前状态：`running`、`idle`、`inactive`（存在但未加载的成员）、`provisioning` 或 `failed`。未加载的成员会在唤醒后收到其消息。
+roster 显示每个成员的职责（`lead` 或 `teammate`）与当前状态：`running`、`idle`、`inactive`（存在但未加载的成员）、`provisioning` 或 `failed`。未加载的成员会在唤醒后收到其消息。被替换的成员会继续留在 roster 上，并带有指向其替代者的指针。
 
-只有 Lead 可以创建 teammate 或中断它们。
+只有 Lead 可以创建 teammate、替换它们或中断它们。
+
+### 替换 teammate
+
+在错误模型上启动的 teammate 可以被替换，而不必弃用：Lead 以同一个名字请求一个替代者，持有该名字的成员随即被取代。被取代的成员保留自己的对话、自己的模型以及它实际达到的结果，而它的名字与 roster 槽位移交给替代者——因此纠正一条路由既不消耗第二个名字，也不消耗第二个槽位。替代者继承被取代成员的职责描述及其 fresh/fork 模式，但不携带它的任何对话。
+
+替换要求 teammate 已经结束：仍在启动中、或此刻正在运行的成员会被拒绝。请先中断正在运行的 teammate 并等它结束，再进行替换。替换不会转移任务归属，因此被取代成员仍持有的任务会一直留在它名下，直到有人重新指派或释放它。
 
 ### teammate 之间的消息
 
@@ -197,7 +203,7 @@ Peer 消息追加在 target 可复用历史前缀之后。冷恢复会先复用�
 - **实验原型，无稳定性承诺**——本包公开发布，但孵化期间约定仍可自由变更。
 - **单进程、共享 checkout**——成员共享 cwd，修改立即可见；本包不提供 worktree、远端成员、merge 或文件锁。
 - **write scope 仅作提示**——Bash、formatter、代码生成器与直接外部写入可以绕过文件版本检查；Lead 必须协调 owner 并检查最终 diff。
-- **扁平且不可变的 roster**——只有 Lead 可以创建直接 teammate；不支持嵌套 Team、重命名、删除或名字复用。
+- **扁平 roster，只能在历史中移除**——只有 Lead 可以创建或替换直接 teammate；不支持嵌套 Team、重命名或删除。替代者会取代持有该名字的成员，而被取代的那一行会永久留在 roster 上。
 - **不会自动释放 owner**——idle、interrupt、进程退出与工作失败都不会释放任务 owner。
 - **mailbox 不保证跨进程 exactly-once**——不支持多个 harness 进程并发操作同一 Team。
 

@@ -58,11 +58,17 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Teammates
 
-Ask the Lead to create a teammate: give it a unique lowercase name such as `reviewer` and describe its job. A teammate starts fresh with no memory of the Lead's conversation, or as a fork that inherits the Lead's completed turns; the creation request chooses which. Teammate names are permanent — even a teammate whose creation failed keeps its name, and no name is ever reused.
+Ask the Lead to create a teammate: give it a unique lowercase name such as `reviewer` and describe its job. A teammate starts fresh with no memory of the Lead's conversation, or as a fork that inherits the Lead's completed turns; the creation request chooses which. Teammate names are permanent — even a teammate whose creation failed keeps its name, and no unrelated member ever takes a name that is already in use.
 
-The roster shows every member with its role (`lead` or `teammate`) and current status: `running`, `idle`, `inactive` (a member that exists but is not loaded), `provisioning`, or `failed`. A member that is not loaded receives its messages when it wakes.
+The roster shows every member with its role (`lead` or `teammate`) and current status: `running`, `idle`, `inactive` (a member that exists but is not loaded), `provisioning`, or `failed`. A member that is not loaded receives its messages when it wakes. A member that was replaced stays on the roster with a pointer to its replacement.
 
-Only the Lead can create teammates or interrupt them.
+Only the Lead can create teammates, replace them, or interrupt them.
+
+### Replacing a teammate
+
+A teammate started on the wrong model can be replaced rather than abandoned: the Lead asks for a replacement under the same name, and the member holding that name is superseded. The superseded member keeps its own conversation, its own model, and the outcome it reached, while its name and its roster slot pass to the replacement — so correcting a route costs neither a second name nor a second slot. The replacement inherits the superseded member's job description and its fresh-or-fork mode, and starts with none of its conversation.
+
+A replacement needs the teammate to be settled: a member that is still starting up, or that is running right now, is refused. Interrupt a running teammate and let it finish before replacing it. Replacement does not move task ownership, so a task the superseded member still owns stays with it until someone reassigns or releases it.
 
 ### Messages between teammates
 
@@ -197,7 +203,7 @@ These limits describe what a team cannot do yet or what needs special operationa
 - **Experimental prototype with no stability promise** — the package is public, but its contracts can change freely while it incubates.
 - **One process and one shared checkout** — members share cwd and observe edits immediately; this package provides no worktree, remote member, merge, or filesystem lock.
 - **Advisory write scopes** — Bash, formatters, code generators, and direct external writers can bypass filesystem version checks; Leads must coordinate ownership and review the final diff.
-- **Flat immutable roster** — only the Lead creates direct teammates; there is no nested Team, rename, deletion, or name reuse.
+- **Flat roster with history-only removal** — only the Lead creates or replaces direct teammates; there is no nested Team, rename, or deletion. A replacement supersedes the member whose name it takes, and the superseded row stays on the roster forever.
 - **No automatic ownership release** — idle, interruption, process exit, and failed work do not release a task owner.
 - **Mailbox is not cross-process exactly-once** — concurrent harness processes over one Team are unsupported.
 

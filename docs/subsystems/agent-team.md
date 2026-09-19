@@ -16,12 +16,25 @@ interface TeamMemberSnapshot {
   readonly description: string
   readonly provider: string
   readonly context: 'fresh' | 'fork'
+  /**
+   * Effective conversation model at creation. Durable because the runtime value
+   * disappears with the Activation: without it an inactive teammate would be
+   * reported with the Lead's model, which is wrong as soon as members differ.
+   */
+  readonly model?: string
   readonly phase: TeamMemberPhase
   readonly error?: string
+  /**
+   * Identity of the member that replaced this one. Supersession is orthogonal
+   * to {@link phase}: a superseded row keeps the provisioning outcome it
+   * actually reached, so "which route ran this work, and did it succeed?"
+   * stays answerable after a replacement. A row carrying it is final.
+   */
+  readonly supersededBy?: SessionId
 }
 ```
 
-Every member starts in `provisioning` and reaches exactly one terminal roster phase, `active` or `failed`. Runtime `running`/`idle`/`inactive` status is derived separately and never rewrites this record.
+Every member starts in `provisioning` and reaches exactly one terminal roster phase, `active` or `failed`. Runtime `running`/`idle`/`inactive` status is derived separately and never rewrites this record. A settled member admits exactly one further edge: supersession, which sets `supersededBy` and rewrites nothing else, so the row keeps the outcome it reached while its name and roster slot pass to the replacement.
 
 ## Durable mailbox
 
@@ -113,6 +126,14 @@ listMembers(agent: Agent): TeamMemberView[]
  * @returns the active roster row.
  */
 async spawnTeammate(caller: Agent, request: SpawnTeammateRequest): Promise<SpawnTeammateResult>
+
+/**
+ * Replace one settled teammate with a new route under the same name.
+ * @param caller - exact live Lead Agent.
+ * @param request - teammate name, replacement prompt, optional route, and cancellation.
+ * @returns the replacement's active roster row.
+ */
+async replaceTeammate(caller: Agent, request: ReplaceTeammateRequest): Promise<SpawnTeammateResult>
 
 /**
  * Queue one durable peer message, then attempt immediate delivery.

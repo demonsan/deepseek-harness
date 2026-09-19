@@ -583,6 +583,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   JobStart: 'jobs.md',
   JobsChangedListener: 'jobs.md',
   CreateTeamTaskRequest: 'agent-team.md',
+  ReplaceTeammateRequest: 'agent-team.md',
   SendTeamMessageRequest: 'agent-team.md',
   SendTeamMessageResult: 'agent-team.md',
   SpawnTeammateRequest: 'agent-team.md',
