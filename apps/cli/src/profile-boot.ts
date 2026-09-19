@@ -294,6 +294,23 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     })
 
     const rootConfig = join(composed.profile.dir, PROFILE_ROOT_FILENAME)
+    // Plugin-entry resolution anchor for the root Include. The source launch
+    // (`node --import tsx/esm`) projects in-repo workspace imports onto `src`
+    // through tsconfig `paths`, but the Loader resolves plugin ENTRIES against
+    // `ctx.baseUrl` (the profile directory, outside the repo), where tsx finds
+    // no tsconfig and falls back to package `exports` — the built `lib/`. A
+    // package then reached from both planes (entry via `lib`, its own in-repo
+    // imports via `src`) loads twice, and two module instances break any
+    // cross-package identity carried by a module-level `Symbol` — e.g.
+    // dsh-tools' `TOOL_RUNTIME_SCHEDULER`, which `dsh-agent-loop` reads off
+    // `ctx.tools`, so every tool dispatch throws `reading 'prepare'`. Anchoring
+    // entry resolution inside the repo makes tsx `paths` apply to plugin
+    // entries too, keeping the whole tree on the `src` plane. A built or
+    // installed launch keeps the default profile-directory anchor: its plugins
+    // resolve to `lib` consistently, so no plane mix arises.
+    const sourceLaunchAnchor = import.meta.url.includes('/apps/cli/src/')
+      ? new URL('../package.json', import.meta.url).href
+      : undefined
     const profileContext: ProfileContext = {
       name: options.profile,
       ...(options.packageManager === undefined ? {} : { packageManager: options.packageManager }),
@@ -320,7 +337,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
         exit: code => void shutdown.shutdown(code),
         ready: appReady.service,
       })
-    })
+    }, sourceLaunchAnchor)
     app.current = ctx
     if (!signalShutdown.signal.aborted
       && ctx.fiber.state === FiberState.ACTIVE
