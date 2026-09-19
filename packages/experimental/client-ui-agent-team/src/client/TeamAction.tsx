@@ -92,6 +92,7 @@ function memberStatusKey(status: TeamRosterMember['status']): TeamKey {
     case 'inactive': return 'memberStatus.inactive'
     case 'provisioning': return 'memberStatus.provisioning'
     case 'failed': return 'memberStatus.failed'
+    case 'superseded': return 'memberStatus.superseded'
   }
 }
 
@@ -241,7 +242,10 @@ export function TeamAction({
   }
 
   const teammates = view?.members.filter(member => member.role === 'teammate') ?? []
-  const assignable = view?.members.filter(member => member.status !== 'failed' && member.status !== 'provisioning') ?? []
+  // A superseded member never runs again, so it can own nothing; it stays in the
+  // roster for history and remains openable, but leaves the owner picker.
+  const assignable = view?.members.filter(member =>
+    member.status !== 'failed' && member.status !== 'provisioning' && member.status !== 'superseded') ?? []
 
   return (
     <div className={css.root} data-team-action>

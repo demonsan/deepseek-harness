@@ -95,7 +95,7 @@ const MEMBER_VIEW_SCHEMA = {
     id: { type: 'string', required: true },
     name: { type: 'string', required: true },
     role: { type: 'string', required: true, enum: ['lead', 'teammate'] },
-    status: { type: 'string', required: true, enum: ['running', 'idle', 'inactive', 'provisioning', 'failed'] },
+    status: { type: 'string', required: true, enum: ['running', 'idle', 'inactive', 'provisioning', 'failed', 'superseded'] },
     description: { type: 'string' },
     provider: { type: 'string' },
     context: { type: 'string', enum: ['fresh', 'fork'] },

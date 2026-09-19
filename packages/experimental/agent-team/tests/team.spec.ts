@@ -488,8 +488,14 @@ describe('Team identity and provisioning', () => {
     // The chain stays visible, the name answers to the replacement, and the
     // superseded row still does not free a slot for an unrelated member.
     const rows = ctx.agentTeams.listMembers(lead)
-    expect(rows.find(row => row.id === first.member.id)?.supersededBy).toBe(second.member.id)
+    // Two rows answer to one name, so the superseded one must not read as an
+    // ordinary inactive member.
+    expect(rows.find(row => row.id === first.member.id)).toMatchObject({
+      status: 'superseded',
+      supersededBy: second.member.id,
+    })
     expect(rows.find(row => row.id === second.member.id)?.supersededBy).toBeUndefined()
+    expect(rows.find(row => row.id === second.member.id)?.status).not.toBe('superseded')
     await expect(spawn(ctx, lead, 'router')).rejects.toMatchObject({ code: 'TEAM_MEMBER_NAME_TAKEN' })
     await expect(spawn(ctx, lead, 'third-worker')).rejects.toMatchObject({ code: 'TEAM_MEMBER_LIMIT' })
   })

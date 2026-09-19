@@ -72,7 +72,12 @@ export interface TeamMemberView {
   readonly id: SessionId
   readonly name: string
   readonly role: 'lead' | 'teammate'
-  readonly status: 'running' | 'idle' | 'inactive' | 'provisioning' | 'failed'
+  /**
+   * `superseded` is a roster fact rather than a runtime one: a replaced member
+   * never runs again, so reporting its last runtime status would leave it
+   * indistinguishable from the live member that took its name.
+   */
+  readonly status: 'running' | 'idle' | 'inactive' | 'provisioning' | 'failed' | 'superseded'
   readonly description?: string
   readonly provider?: string
   readonly context?: 'fresh' | 'fork'

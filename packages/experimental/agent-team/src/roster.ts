@@ -152,11 +152,13 @@ export class TeamRoster {
         id: member.id,
         name: member.name,
         role: 'teammate',
-        status: member.phase === 'failed'
-          ? 'failed'
-          : member.phase === 'provisioning'
-            ? 'provisioning'
-            : live?.status ?? 'inactive',
+        status: member.supersededBy !== undefined
+          ? 'superseded'
+          : member.phase === 'failed'
+            ? 'failed'
+            : member.phase === 'provisioning'
+              ? 'provisioning'
+              : live?.status ?? 'inactive',
         description: member.description,
         provider: member.provider,
         context: member.context,
