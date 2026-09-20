@@ -2043,7 +2043,7 @@ Source: [`packages/experimental/tool-agent-team/src/index.ts`](../packages/exper
 
 ### `replace_teammate`
 
-Replace one settled teammate with a new LLM route under the same name. The old member is superseded: it keeps its own id, history, route, and outcome, and its name and roster slot are released to the replacement. Use it to recover a teammate started on the wrong route, instead of burning a second name. The target must not be running; interrupt it first. Only the Team Lead may call this tool.
+Replace one settled teammate with a new LLM route under the same name. The old member is superseded: it keeps its own id, history, route, and outcome, and its name and roster slot are released to the replacement. Every in-progress task the old member owned moves to the replacement and is reported in transferredTasks; completed tasks keep the owner that produced them. Later assignments to the name reach the replacement. Brief the replacement on the work it inherits: it starts with no memory of the superseded member. Use it to recover a teammate started on the wrong route, instead of burning a second name. The target must not be running; interrupt it first. Only the Team Lead may call this tool.
 
 ```json
 {

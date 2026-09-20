@@ -18,11 +18,13 @@ import { messageAccepted } from './session-message.ts'
 import { TeamId } from './types.ts'
 import type {
   ReplaceTeammateRequest,
+  ReplaceTeammateResult,
   SpawnTeammateRequest,
   SpawnTeammateResult,
   TeamMemberSnapshot,
   TeamMemberView,
   TeammateAgentOptions,
+  TeamTaskId,
 } from './types.ts'
 import { requiredText } from './validation.ts'
 
@@ -68,12 +70,14 @@ export class TeamRoster {
    * @param journal - authoritative Lead-log transaction owner.
    * @param lifecycle - shared Team runtime admission cutoff.
    * @param maxMembers - maximum immutable roster entries per Team.
+   * @param transferTasks - moves in-progress work across a supersession, inside the roster's own transaction.
    */
   constructor(
     private readonly ctx: Context,
     private readonly journal: TeamJournal,
     private readonly lifecycle: TeamRuntimeLifecycle,
     private readonly maxMembers: number,
+    private readonly transferTasks: (root: Agent, from: SessionId, to: SessionId) => Promise<TeamTaskId[]>,
   ) {}
 
   /**
@@ -193,7 +197,7 @@ export class TeamRoster {
    * @param request - teammate name, replacement prompt, optional route, and cancellation.
    * @returns the replacement's active roster row.
    */
-  async replace(caller: Agent, request: ReplaceTeammateRequest): Promise<SpawnTeammateResult> {
+  async replace(caller: Agent, request: ReplaceTeammateRequest): Promise<ReplaceTeammateResult> {
     if (this.lifecycle.disposed) throw new TeamError('Agent Teams service is disposing', 'TEAM_DISPOSED')
     const operation = this.replaceAdmitted(caller, request)
     this.inFlightCreations.add(operation)
@@ -320,7 +324,7 @@ export class TeamRoster {
   private async replaceAdmitted(
     caller: Agent,
     request: ReplaceTeammateRequest,
-  ): Promise<SpawnTeammateResult> {
+  ): Promise<ReplaceTeammateResult> {
     const membership = this.membership(caller)
     if (membership.role !== 'lead') {
       throw new TeamError('only the Team Lead can replace teammates', 'TEAM_LEAD_REQUIRED')
@@ -331,6 +335,7 @@ export class TeamRoster {
     const name = this.memberName(request.name)
     const childId = brandString<SessionId>(randomUUID())
     let member!: TeamMemberSnapshot
+    let transferred: TeamTaskId[] = []
 
     await this.journal.transact(root.id, async () => {
       const state = this.journal.state(root)
@@ -371,9 +376,13 @@ export class TeamRoster {
         member: { ...current, supersededBy: childId },
       })
       await this.journal.appendAndFlush(root, 'team/member', { version: 2, teamId: TeamId(root.id), member })
+      // Same transaction as the supersession: the board must never show a
+      // member that can no longer run still holding work.
+      transferred = await this.transferTasks(root, current.id, childId)
     })
 
-    return await this.startProvisionedMember(root, member, request.prompt, request.agentOptions, signal)
+    const started = await this.startProvisionedMember(root, member, request.prompt, request.agentOptions, signal)
+    return { ...started, transferredTasks: transferred }
   }
 
   /**

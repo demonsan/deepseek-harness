@@ -19,6 +19,7 @@ import type {
   Config,
   CreateTeamTaskRequest,
   ReplaceTeammateRequest,
+  ReplaceTeammateResult,
   SendTeamMessageRequest,
   SendTeamMessageResult,
   SpawnTeammateRequest,
@@ -97,7 +98,14 @@ export class TeamService extends TypertRemoteService {
     this.activity = new TeamActivity()
     this.lifecycle = new TeamRuntimeLifecycle(this.config.disposalTimeoutMs)
     this.journal = new TeamJournal(ctx, (root) => { this.activity.notify(TeamId(root.id)) })
-    this.roster = new TeamRoster(ctx, this.journal, this.lifecycle, this.config.maxMembers)
+    this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
+    this.roster = new TeamRoster(
+      ctx,
+      this.journal,
+      this.lifecycle,
+      this.config.maxMembers,
+      (root, from, to) => this.tasks.transferOwnership(root, from, to),
+    )
     this.mailbox = new TeamMailbox(
       ctx,
       this.journal,
@@ -106,7 +114,6 @@ export class TeamService extends TypertRemoteService {
       this.config.maxPendingMessagesPerMember,
       this.config.maxMessageBytes,
     )
-    this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
 
     ctx.on('session/event', (session, event) => { this.mailbox.observeSessionEvent(session, event) })
     ctx.on('agent/created', ({ agent }) => { this.scheduleRecovery(agent) })
@@ -161,7 +168,7 @@ export class TeamService extends TypertRemoteService {
    * @param request - teammate name, replacement prompt, optional route, and cancellation.
    * @returns the replacement's active roster row.
    */
-  async replaceTeammate(caller: Agent, request: ReplaceTeammateRequest): Promise<SpawnTeammateResult> {
+  async replaceTeammate(caller: Agent, request: ReplaceTeammateRequest): Promise<ReplaceTeammateResult> {
     return await this.roster.replace(caller, request)
   }
 

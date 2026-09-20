@@ -133,7 +133,7 @@ async spawnTeammate(caller: Agent, request: SpawnTeammateRequest): Promise<Spawn
  * @param request - teammate name, replacement prompt, optional route, and cancellation.
  * @returns the replacement's active roster row.
  */
-async replaceTeammate(caller: Agent, request: ReplaceTeammateRequest): Promise<SpawnTeammateResult>
+async replaceTeammate(caller: Agent, request: ReplaceTeammateRequest): Promise<ReplaceTeammateResult>
 
 /**
  * Queue one durable peer message, then attempt immediate delivery.

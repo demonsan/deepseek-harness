@@ -68,7 +68,9 @@ Only the Lead can create teammates, replace them, or interrupt them.
 
 A teammate started on the wrong model can be replaced rather than abandoned: the Lead asks for a replacement under the same name, and the member holding that name is superseded. The superseded member keeps its own conversation, its own model, and the outcome it reached, while its name and its roster slot pass to the replacement — so correcting a route costs neither a second name nor a second slot. The replacement inherits the superseded member's job description and its fresh-or-fork mode, and starts with none of its conversation.
 
-A replacement needs the teammate to be settled: a member that is still starting up, or that is running right now, is refused. Interrupt a running teammate and let it finish before replacing it. Replacement does not move task ownership, so a task the superseded member still owns stays with it until someone reassigns or releases it.
+A replacement needs the teammate to be settled: a member that is still starting up, or that is running right now, is refused. Interrupt a running teammate and let it finish before replacing it.
+
+Work follows the name. Every in-progress task the superseded member owned moves to the replacement in the same step, and the replacement is told which ones; a task assigned to that name later reaches the replacement too. Finished work does not move: a completed task keeps the member that produced it, which is the same reason the superseded row stays on the roster at all. The replacement starts with none of its predecessor's conversation, so brief it on the work it has just inherited.
 
 ### Messages between teammates
 

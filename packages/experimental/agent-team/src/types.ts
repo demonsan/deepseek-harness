@@ -198,6 +198,15 @@ export interface ReplaceTeammateRequest {
   readonly signal: AbortSignal
 }
 
+/** Result after one replacement reaches its durable active edge. */
+export interface ReplaceTeammateResult extends SpawnTeammateResult {
+  /**
+   * In-progress tasks moved from the superseded member, in board order.
+   * Completed and deleted tasks keep the owner that produced them.
+   */
+  readonly transferredTasks: TeamTaskId[]
+}
+
 /** Result after one teammate reaches a durable active or failed edge. */
 export interface SpawnTeammateResult {
   readonly member: TeamMemberView

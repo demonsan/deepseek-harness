@@ -369,7 +369,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the active roster row.',
       },
       {
-        signature: 'async replaceTeammate(caller: Agent, request: ReplaceTeammateRequest): Promise<SpawnTeammateResult>',
+        signature: 'async replaceTeammate(caller: Agent, request: ReplaceTeammateRequest): Promise<ReplaceTeammateResult>',
         description: 'Replace one settled teammate with a new route under the same name.',
         parameters: [{ name: 'caller', description: 'exact live Lead Agent.' }, { name: 'request', description: 'teammate name, replacement prompt, optional route, and cancellation.' }],
         returns: 'the replacement\'s active roster row.',
@@ -5529,6 +5529,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ReplaceTeammateRequest',
     declaration: 'export interface ReplaceTeammateRequest {\n    readonly name: string;\n    readonly prompt: ContentBlock[];\n    readonly agentOptions?: TeammateAgentOptions;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'ReplaceTeammateResult',
+    declaration: 'export interface ReplaceTeammateResult extends SpawnTeammateResult {\n    readonly transferredTasks: TeamTaskId[];\n}',
   },
   {
     name: 'ReplayEnvelope',

@@ -1,6 +1,7 @@
 /** Shared Team task DAG commands and runtime-enriched views. */
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { TeamMembership } from './roster.ts'
 import { TeamError } from './error.ts'
 import type { TeamJournal } from './journal.ts'
@@ -212,6 +213,31 @@ export class TeamTaskBoard {
       await this.journal.appendAndFlush(root, 'team/task', { version: 2, teamId: TeamId(root.id), task })
       return this.taskView(root, state, task)
     })
+  }
+
+  /**
+   * Move every in-progress task from a superseded member to its replacement,
+   * inside the caller's open transaction.
+   *
+   * Only in-progress work moves. A completed or deleted task keeps the owner
+   * that actually did it: the roster retains a superseded member precisely so
+   * "who produced this" stays answerable, and rewriting those owners would
+   * destroy the same fact. Pending tasks never carry an owner.
+   * @param root - exact live Team Lead whose log owns the tasks.
+   * @param from - superseded member losing its work.
+   * @param to - replacement member taking it over.
+   * @returns the ids moved, in board order.
+   */
+  async transferOwnership(root: Agent, from: SessionId, to: SessionId): Promise<TeamTaskId[]> {
+    const state = this.journal.state(root)
+    const moved: TeamTaskId[] = []
+    for (const current of state.tasks) {
+      if (current.ownerId !== from || current.status !== 'in_progress') continue
+      const task: TeamTaskSnapshot = { ...current, ownerId: to, revision: current.revision + 1 }
+      await this.journal.appendAndFlush(root, 'team/task', { version: 2, teamId: TeamId(root.id), task })
+      moved.push(task.id)
+    }
+    return moved
   }
 
   /** Validate and de-duplicate dependency ids against the current task graph. */

@@ -131,6 +131,15 @@ const SPAWN_VALUE_SCHEMA = {
   },
 } as const
 
+const REPLACE_VALUE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    member: { ...MEMBER_VIEW_SCHEMA, required: true },
+    transferredTasks: { type: 'array', required: true, items: { type: 'string' } },
+  },
+} as const
+
 const MEMBER_LIST_VALUE_SCHEMA = { type: 'array', items: MEMBER_VIEW_SCHEMA } as const
 
 const SEND_VALUE_SCHEMA = {
@@ -259,7 +268,7 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
 
     register(scoped.tools.register(defineTool({
       name: 'replace_teammate',
-      description: 'Replace one settled teammate with a new LLM route under the same name. The old member is superseded: it keeps its own id, history, route, and outcome, and its name and roster slot are released to the replacement. Use it to recover a teammate started on the wrong route, instead of burning a second name. The target must not be running; interrupt it first. Only the Team Lead may call this tool.',
+      description: 'Replace one settled teammate with a new LLM route under the same name. The old member is superseded: it keeps its own id, history, route, and outcome, and its name and roster slot are released to the replacement. Every in-progress task the old member owned moves to the replacement and is reported in transferredTasks; completed tasks keep the owner that produced them. Later assignments to the name reach the replacement. Brief the replacement on the work it inherits: it starts with no memory of the superseded member. Use it to recover a teammate started on the wrong route, instead of burning a second name. The target must not be running; interrupt it first. Only the Team Lead may call this tool.',
       parameters: {
         name: { type: 'string', required: true, description: 'Name of the teammate to replace. The replacement answers to the same name.' },
         prompt: { type: 'string', required: true, description: 'Complete initial task for the replacement. It starts with no memory of the superseded member.' },
@@ -276,7 +285,7 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
           description: 'Adapter-owned reasoning effort for the effective replacement route. Omit to use the selected model\'s default.',
         },
       },
-      output: jsonOutput(SPAWN_VALUE_SCHEMA),
+      output: jsonOutput(REPLACE_VALUE_SCHEMA),
       async execute(args, exec) {
         const agent = callingAgent(exec.agent, 'replace_teammate')
         const agentOptions = teammateRoute(ctx, args)
