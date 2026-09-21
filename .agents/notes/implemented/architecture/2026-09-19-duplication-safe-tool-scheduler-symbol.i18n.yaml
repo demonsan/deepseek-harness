@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-19-duplication-safe-tool-scheduler-symbol.md
+2026-09-19-duplication-safe-tool-scheduler-symbol.md: e1fb56a2768ba6bdfbf0b60a24b344c6321c45e4
+2026-09-19-duplication-safe-tool-scheduler-symbol.zh.md: ac23a4a83e5de947a5a0e27167b49feeb01fe53e

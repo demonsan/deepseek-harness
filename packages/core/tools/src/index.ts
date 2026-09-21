@@ -457,10 +457,18 @@ export interface ToolRuntimeScheduler {
 }
 
 /**
- * Scheduler entry point omitted from the generated named service API.
+ * Scheduler entry point omitted from the generated named service API. Keyed by
+ * a global-registry symbol (`Symbol.for`), not a module-local `Symbol`, so the
+ * `ToolRuntime` instance's field and `dsh-agent-loop`'s read agree on identity
+ * even when the source launch loads `@deepseek-ai/dsh-tools` from two planes
+ * (a plugin entry from built `lib/` while an in-repo import is remapped to
+ * `src` by tsx): the two module copies otherwise mint distinct symbols and the
+ * scheduler read returns `undefined`, throwing `reading 'prepare'` on every
+ * tool dispatch. A registry symbol keeps the launcher free to resolve
+ * profile-local third-party plugins against the profile directory.
  * @internal
  */
-export const TOOL_RUNTIME_SCHEDULER: unique symbol = Symbol('@deepseek-ai/dsh-tools.scheduler')
+export const TOOL_RUNTIME_SCHEDULER: unique symbol = Symbol.for('@deepseek-ai/dsh-tools.scheduler')
 
 /** Canonical error code for cancellation after a tool body was invoked. */
 export const TOOL_ABORTED = 'ABORTED'
