@@ -79,6 +79,88 @@ function teammateRoute(ctx: Context, args: {
   }
   return { provider, model, ...reasoningEffort === undefined ? {} : { reasoningEffort } }
 }
+
+/** Structural view of the LLM runtime's route resolution. */
+interface LlmRouteResolverView {
+  resolveCallConfig(
+    config: { provider: string; model: string; reasoningEffort?: string },
+    signal?: AbortSignal,
+  ): Promise<unknown>
+}
+
+/**
+ * The Lead's current route, as a child created now would inherit it: the
+ * latest request header owns provider, model, and effort once a request has
+ * been made, and creation options before that. Mirrors the delegation
+ * service's own parent-route resolution.
+ */
+function leadRoute(lead: Agent): { provider?: string; model?: string; reasoningEffort?: string } {
+  const request = lead.session.requestHeader()?.config
+  if (request !== undefined) {
+    return {
+      provider: request.provider,
+      model: request.model,
+      ...request.reasoningEffort === undefined ? {} : { reasoningEffort: request.reasoningEffort },
+    }
+  }
+  const { provider, model, reasoningEffort } = lead.options
+  return {
+    ...provider === undefined ? {} : { provider },
+    ...model === undefined ? {} : { model },
+    ...reasoningEffort === undefined ? {} : { reasoningEffort },
+  }
+}
+
+/**
+ * Resolve a teammate's effective route through the live LLM runtime before
+ * anything is created.
+ *
+ * Without this, an effort the selected model does not offer is discovered
+ * only when the child's first turn fails. By then the member record exists,
+ * the name is used, and the roster slot is spent — and the Lead retrying the
+ * same call burns another. Resolving first rejects the call while it is still
+ * free to correct.
+ *
+ * The effective values follow the delegation service's merge: a changed route
+ * without an effort drops the Lead's effort, so the selected model uses its own
+ * default; an unchanged route inherits the Lead's effort.
+ * @param ctx - Context that may own the `llm` runtime.
+ * @param lead - the calling Agent whose route an omitted field inherits.
+ * @param route - per-teammate overrides from {@link teammateRoute}.
+ * @param tool - tool name for the error message.
+ * @param signal - tool-call cancellation.
+ */
+async function preflightTeammateRoute(
+  ctx: Context,
+  lead: Agent,
+  route: { provider?: string; model?: string; reasoningEffort?: string } | undefined,
+  tool: string,
+  signal: AbortSignal,
+): Promise<void> {
+  if (route === undefined) return
+  const llm = (ctx as unknown as { get(name: string): unknown }).get('llm') as LlmRouteResolverView | undefined
+  if (llm === undefined) {
+    throw new Error(`${tool}: cannot validate the teammate route because the \`llm\` service is unavailable`)
+  }
+  const parent = leadRoute(lead)
+  const provider = route.provider ?? parent.provider
+  const model = route.model ?? parent.model
+  if (provider === undefined || model === undefined) {
+    throw new Error(`${tool}: cannot resolve a teammate route without an effective provider and model`)
+  }
+  const routeChanged = provider !== parent.provider || model !== parent.model
+  const reasoningEffort = route.reasoningEffort ?? (routeChanged ? undefined : parent.reasoningEffort)
+  try {
+    await llm.resolveCallConfig({
+      provider,
+      model,
+      ...reasoningEffort === undefined ? {} : { reasoningEffort },
+    }, signal)
+  } catch (error: unknown) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`${tool}: teammate route "${provider}/${model}" was rejected before anything was created: ${reason}`, { cause: error })
+  }
+}
 const ACTIVE_WAIT_STATUSES: ReadonlySet<TeamMemberView['status']> = new Set(['running', 'provisioning'])
 const NO_ACTIVE_PEER_MESSAGE = 'No other Team member is running or provisioning. wait_agent cannot make progress or wake inactive teammates. Re-list with list_agents and team_task_list, then use send_message to wake each required inactive teammate before waiting again.'
 
@@ -255,6 +337,7 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
         const agent = callingAgent(exec.agent, 'spawn_teammate')
         const context = args.context ?? 'fresh'
         const agentOptions = teammateRoute(ctx, args)
+        await preflightTeammateRoute(ctx, agent, agentOptions, 'spawn_teammate', exec.signal)
         const result = await ctx.agentTeams.spawnTeammate(agent, {
           name: args.name,
           description: args.description,
@@ -302,6 +385,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
       async execute(args, exec) {
         const agent = callingAgent(exec.agent, 'replace_teammate')
         const agentOptions = teammateRoute(ctx, args)
+        await preflightTeammateRoute(ctx, agent, agentOptions, 'replace_teammate', exec.signal)
         const result = await ctx.agentTeams.replaceTeammate(agent, {
           name: args.name,
           prompt: [

@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -64,7 +64,11 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function setup(script: ConstructorParameters<typeof MockAdapter>[0], legacyControl = false) {
+async function setup(
+  script: ConstructorParameters<typeof MockAdapter>[0],
+  legacyControl = false,
+  reasoning?: ConstructorParameters<typeof MockAdapter>[1],
+) {
   const ctx = new Context()
   contexts.add(ctx)
   await mountAgentLoopTestDependencies(ctx)
@@ -79,7 +83,7 @@ async function setup(script: ConstructorParameters<typeof MockAdapter>[0], legac
   await ctx.plugin(SubagentFork, { providerName: 'fork' })
   await ctx.plugin(TeamService)
   const fiber = await ctx.plugin(toolTeam)
-  const adapter = new MockAdapter(script)
+  const adapter = new MockAdapter(script, reasoning)
   ctx.llm.registerAdapter(['mock'], adapter)
   const lead = await ctx.agentLoop.create(SessionId('tool-team-lead'), { provider: 'mock', model: 'mock' })
   return { ctx, lead, fiber, adapter }
@@ -732,5 +736,54 @@ describe('dsh-tool-team', () => {
     const childId = spawnedChildId(ctx, lead, result)
     await vi.waitFor(() => { expect(ctx.agents.get(childId)).toBeUndefined() }, { timeout: 5_000 })
     expect(ctx.agentTeams.listMembers(lead)[1]).toMatchObject({ provider: 'team-fresh' })
+  })
+
+  it('rejects an effort the route does not offer before creating anything', async () => {
+    // The effort is only refused by the model's first request. Checked there,
+    // the member record, the name, and the roster slot are already spent, and
+    // the Lead sees a delivery error rather than the reason.
+    const { ctx, lead } = await setup([], false, {
+      efforts: [{ id: ReasoningEffortId('low'), name: 'low' }, { id: ReasoningEffortId('high'), name: 'high' }],
+    })
+    const spawn = vi.spyOn(ctx.agentTeams, 'spawnTeammate')
+    const replace = vi.spyOn(ctx.agentTeams, 'replaceTeammate')
+
+    const spawned = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'verifier', description: 'verify', prompt: 'go', reasoning_effort: 'xhigh',
+    })
+    expect(spawned.isError).toBe(true)
+    expect(text(spawned)).toContain('rejected before anything was created')
+    expect(text(spawned)).toContain('does not support reasoning effort "xhigh"')
+
+    const replaced = await execute(ctx, lead, 'replace_teammate', {
+      name: 'verifier', prompt: 'go', reasoning_effort: 'xhigh',
+    })
+    expect(replaced.isError).toBe(true)
+    expect(text(replaced)).toContain('does not support reasoning effort "xhigh"')
+
+    expect(spawn).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
+    expect(ctx.agentTeams.listMembers(lead).filter(member => member.role === 'teammate')).toEqual([])
+  })
+
+  it('lets a supported effort and an inherited route through the preflight', async () => {
+    const { ctx, lead } = await setup([], false, {
+      efforts: [{ id: ReasoningEffortId('low'), name: 'low' }, { id: ReasoningEffortId('high'), name: 'high' }],
+    })
+    const spawn = vi.spyOn(ctx.agentTeams, 'spawnTeammate').mockResolvedValue({
+      member: {
+        id: SessionId('preflight-ok'), name: 'verifier', role: 'teammate',
+        status: 'running', description: 'verify', diagnostics: [],
+      },
+    })
+    const withEffort = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'verifier', description: 'verify', prompt: 'go', reasoning_effort: 'high',
+    })
+    expect(withEffort.isError).toBe(false)
+    const inherited = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'verifier', description: 'verify', prompt: 'go',
+    })
+    expect(inherited.isError).toBe(false)
+    expect(spawn).toHaveBeenCalledTimes(2)
   })
 })

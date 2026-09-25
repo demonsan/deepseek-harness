@@ -331,6 +331,39 @@ describe('Team identity and provisioning', () => {
     await abortedFiber.dispose()
   })
 
+  it('reports why a child that failed its first turn never accepted its prompt', async () => {
+    // The child claims its initial prompt from the inbox, then its first
+    // request is refused and the turn ends in error. Judged by acceptance
+    // alone that reads as a delivery failure; the recorded turn failure is the
+    // reason, and the Lead needs it to correct the call instead of repeating it.
+    const { ctx } = await setup([])
+    const internal = teamInternals(ctx).roster
+    let child: Session | undefined
+    const fiber = await ctx.plugin(Object.assign(function failedFirstTurnFixture(childCtx: Context) {
+      child = childCtx.sessions.create(SessionId('failed-first-turn-child'))
+    }, { inject: ['sessions'] }))
+    if (child === undefined) throw new Error('failed-first-turn fixture did not create its Session')
+    const initial = createUserMessage({ content: content('verify'), source: { kind: 'user' } })
+    child.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [initial] })
+    child.append('turn/start', { turn: 1 })
+    child.append('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] })
+    child.append('turn/end', {
+      turn: 1,
+      reason: {
+        kind: 'error',
+        error: { message: 'provider "p" model "m" does not support reasoning effort "xhigh"', code: 'UNKNOWN' },
+      },
+    })
+    const persisted = await ctx.sessionPersistence.create(child.header)
+    await persisted.append(child.snapshotEvents())
+    await persisted.close()
+    await fiber.dispose()
+
+    const rejected = internal.checkpointInitialPrompt(child.id, initial.id, SIGNAL)
+    await expect(rejected).rejects.toMatchObject({ code: 'TEAM_PROVISIONING_CONFLICT' })
+    await expect(rejected).rejects.toThrow('does not support reasoning effort "xhigh"')
+  })
+
   it('drains an accepted child when its initial durability checkpoint fails', async () => {
     const { ctx, lead } = await setup(['hang'])
     vi.spyOn(teamInternals(ctx).roster, 'checkpointInitialPrompt')

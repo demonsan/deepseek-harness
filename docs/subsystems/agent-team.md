@@ -101,6 +101,8 @@ interface TeamMemberProjection {
   /** Durable lifecycle; the Lead row is always `active`. Turn activity comes from Session status. */
   readonly phase: TeamMemberPhase
   readonly error?: string
+  /** Replacement that took this member's name; a superseded member never runs again. */
+  readonly supersededBy?: SessionId
 }
 ```
 

@@ -14,7 +14,7 @@ import type { TeamJournal } from './journal.ts'
 import type { TeamRuntimeLifecycle } from './lifecycle.ts'
 import { readPersistedSession } from './persisted.ts'
 import type { TeamState } from './projection.ts'
-import { messageAccepted } from './session-message.ts'
+import { firstTurnFailure, messageAccepted } from './session-message.ts'
 import { TeamId } from './types.ts'
 import type {
   ReplaceTeammateRequest,
@@ -480,8 +480,11 @@ export class TeamRoster {
         const stored = await readPersistedSession(this.ctx.sessionPersistence, childId, signal)
         const suffix = stored.events.slice(stored.inheritedEventCount)
         if (messageAccepted(suffix, message => message.id === messageId)) return
+        const failure = firstTurnFailure(suffix)
         throw new TeamError(
-          `teammate "${childId}" initial prompt was not durably accepted`,
+          failure === undefined
+            ? `teammate "${childId}" initial prompt was not durably accepted`
+            : `teammate "${childId}" failed its first turn before accepting the initial prompt: ${failure}`,
           'TEAM_PROVISIONING_CONFLICT',
         )
       }
