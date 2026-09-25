@@ -3,11 +3,13 @@ import type { Volatile } from '@deepseek-ai/cordis'
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type { Session } from '@deepseek-ai/dsh-session'
 import {
   AllowedModelRouteSchema,
   assertAllowedModelRoutes,
   type AllowedModelRoute,
 } from './model-selection.ts'
+import { resolveModelSelection } from './model-selection-state.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -57,6 +59,19 @@ export class SubagentModelSelectionConfig extends Service {
     return { enabled, allowedModels: allowedModels.map(route => ({ ...route })) }
   }
 
+  /**
+   * The routes one Session may select right now: its durable (and possibly
+   * user-updated) decision, resolved exactly as the delegation tool resolves
+   * it. Packages outside this one read authority here, so teammate routes and
+   * subagent routes cannot drift apart.
+   * @param session - Session whose authority is read.
+   * @returns exact routes, or undefined when the Session is fixed-route.
+   */
+  allowedModelsFor(session: Session): AllowedModelRoute[] | undefined {
+    const projections = this.ctx.get('sessionProjections')
+    if (projections === undefined) return undefined
+    return resolveModelSelection(projections, this.ctx.get('sessions'), this, session)
+  }
 }
 
 export const name = 'subagent-model-selection-settings'

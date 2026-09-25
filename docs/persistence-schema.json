@@ -15351,6 +15351,126 @@
       }
     },
     {
+      "key": "event:subagent/model-selection-policy-update",
+      "kind": "event",
+      "event": "subagent/model-selection-policy-update",
+      "surface": false,
+      "digest": "d56c14caff376741c36eec3aadd015c2b8911335123d06bfbda7d287b7fd32e1",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 8,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 9,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "allowedModels",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "approval",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "expectedRevision",
+                "type": 7,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 3
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "model",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "provider",
+                "type": 4,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "answer",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "via",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "user-question"
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "literal",
+            "value": "subagent/model-selection-policy-update"
+          }
+        ]
+      }
+    },
+    {
       "key": "event:system/message",
       "kind": "event",
       "event": "system/message",
@@ -22660,7 +22780,7 @@
       },
       "names": [],
       "sources": [
-        "packages/subagent/tool-subagent/src/model-selection-state.ts:17"
+        "packages/subagent/tool-subagent/src/model-selection-state.ts:26"
       ]
     },
     {
@@ -25100,6 +25220,44 @@
       },
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "10df565f3141344c526d7dacc1d30442971413d9ff12c7368ef0f8893b5d821b",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "answer",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "via",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "literal",
+            "value": "user-question"
+          }
+        ]
+      },
+      "names": [
+        "packages/subagent/tool-subagent/src/model-selection-state.ts#ModelSelectionApproval"
+      ],
+      "sources": [
+        "packages/subagent/tool-subagent/src/model-selection-state.ts:11"
+      ]
     },
     {
       "digest": "10e386801903f9d424602c31d3ff837a94aef623c8b391376d8d9e253525fabe",
@@ -35226,6 +35384,20 @@
           {
             "kind": "literal",
             "value": "model/selection"
+          }
+        ]
+      },
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "3665c851323b95a390bf3d2a3b9778b416be8c47ae43a0b5fcf077f494bc9623",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "literal",
+            "value": "user-question"
           }
         ]
       },
@@ -61450,6 +61622,87 @@
       ]
     },
     {
+      "digest": "81d75ce9e268926a91a0e3e68a95232edeb4f67b1f3e96ebf226decb9ddf5052",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "allowedModels",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "approval",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "expectedRevision",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 2
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "model",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "provider",
+                "type": 3,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "answer",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "via",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "user-question"
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          }
+        ]
+      },
+      "names": [],
+      "sources": [
+        "packages/subagent/tool-subagent/src/model-selection-state.ts:37"
+      ]
+    },
+    {
       "digest": "82470020b5bfcb1a843e2aa05602af7d37df99e82d01f015c7c589ba054fd89d",
       "schema": {
         "root": 0,
@@ -71924,6 +72177,20 @@
       "sources": []
     },
     {
+      "digest": "b672e191e3cfc026f4fd5a880650be8c9c053354296ae084115bc40fddaa9f37",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "literal",
+            "value": "subagent/model-selection-policy-update"
+          }
+        ]
+      },
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "b6896938660a1dfe4ddd100fb3164d9f8fa57feeabfe37441a80106c9942697a",
       "schema": {
         "root": 0,
@@ -77793,6 +78060,124 @@
       "sources": [
         "packages/experimental/agent-team/src/types.ts:291"
       ]
+    },
+    {
+      "digest": "d56c14caff376741c36eec3aadd015c2b8911335123d06bfbda7d287b7fd32e1",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 8,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 9,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "allowedModels",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "approval",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "expectedRevision",
+                "type": 7,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 3
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "model",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "provider",
+                "type": 4,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "answer",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "via",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "user-question"
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "literal",
+            "value": "subagent/model-selection-policy-update"
+          }
+        ]
+      },
+      "names": [],
+      "sources": []
     },
     {
       "digest": "d595ec73b32b016a6055333c67a5d646032b22e672da1d4a09c5b1ae398a093a",

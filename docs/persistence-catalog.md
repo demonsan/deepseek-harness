@@ -60,6 +60,7 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:subagent/catalog` | event | `3abae7324356f155cb42450c00b806d134ec93bd6439d2063b8d724162d58604` | [`{ type: "subagent/catalog" }`](#persistence-type-sha256-3abae7324356f155cb42450c00b806d134ec93bd6439d2063b8d724162d58604) |
 | `event:subagent/descriptor` | event | `b79ada42962cad0190a9d465805260567621fa3a4abd757eb31e6016b52d5ab5` | [`{ type: "subagent/descriptor" }`](#persistence-type-sha256-b79ada42962cad0190a9d465805260567621fa3a4abd757eb31e6016b52d5ab5) |
 | `event:subagent/model-selection-policy` | event | `a6567ccb2e530606b775371eb4fa31468d72084339968e8b0440a516a23b39dc` | [`{ type: "subagent/model-selection-policy" }`](#persistence-type-sha256-a6567ccb2e530606b775371eb4fa31468d72084339968e8b0440a516a23b39dc) |
+| `event:subagent/model-selection-policy-update` | event | `d56c14caff376741c36eec3aadd015c2b8911335123d06bfbda7d287b7fd32e1` | [`{ type: "subagent/model-selection-policy-update" }`](#persistence-type-sha256-d56c14caff376741c36eec3aadd015c2b8911335123d06bfbda7d287b7fd32e1) |
 | `event:system/message` | event | `69081694be231d56fd9580ba14645fd5e35373202605d5c5c841a9435b5fa3b1` | [`{ type: "system/message" }`](#persistence-type-sha256-69081694be231d56fd9580ba14645fd5e35373202605d5c5c841a9435b5fa3b1) |
 | `event:team/member` | event | `c0e8a744c1c5dbe369197d24840d7ba2bf2725257d2c3a75de9ac1354e174d94` | [`{ type: "team/member" }`](#persistence-type-sha256-c0e8a744c1c5dbe369197d24840d7ba2bf2725257d2c3a75de9ac1354e174d94) |
 | `event:team/message/delivered` | event | `48f9c19417a1abbedfa59f4667bba36b93ac2db407adf5e84cb3ba0de30942cb` | [`{ type: "team/message/delivered" }`](#persistence-type-sha256-48f9c19417a1abbedfa59f4667bba36b93ac2db407adf5e84cb3ba0de30942cb) |
@@ -936,7 +937,31 @@ Source: [`packages/subagent/subagent/src/descriptor.ts:38`](../packages/subagent
 }
 ```
 
-Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:17`](../packages/subagent/tool-subagent/src/model-selection-state.ts)
+Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:26`](../packages/subagent/tool-subagent/src/model-selection-state.ts)
+
+<a id="subagentmodel-selection-policy-update--log-only"></a>
+
+#### `subagent/model-selection-policy-update` — log-only
+
+```ts persistence-catalog
+/**
+ * Replaces this Session's route policy after the user explicitly approved
+ * the exact new list. `expectedRevision` is the policy revision the
+ * request was shown against (0 when the Session had no policy); the fold
+ * rejects a record whose revision does not match, so a stale request can
+ * never overwrite a newer decision. Log-only, like the initial capture.
+ */
+'subagent/model-selection-policy-update': {
+  /** Revision the approved change was computed from; 0 for none. */
+  expectedRevision: number
+  /** The complete approved route list that replaces the current one. */
+  allowedModels: AllowedModelRoute[]
+  /** The explicit user decision that authorized this record. */
+  approval: ModelSelectionApproval
+}
+```
+
+Source: [`packages/subagent/tool-subagent/src/model-selection-state.ts:37`](../packages/subagent/tool-subagent/src/model-selection-state.ts)
 
 ### `system/*`
 
@@ -2491,6 +2516,14 @@ SHA-256: `0a8a062bc9c3c0d97fd97742262f2ea53dd32297f834e81114870d38ac3dc6da`
 
 `"subagent/model-selection-policy"`
 
+<a id="persistence-type-sha256-b672e191e3cfc026f4fd5a880650be8c9c053354296ae084115bc40fddaa9f37"></a>
+
+### `"subagent/model-selection-policy-update"`
+
+SHA-256: `b672e191e3cfc026f4fd5a880650be8c9c053354296ae084115bc40fddaa9f37`
+
+`"subagent/model-selection-policy-update"`
+
 <a id="persistence-type-sha256-511801b0a6470d98566e8385d3dffddb2b67f79fcf73ed6056f46c3cc0a245a7"></a>
 
 ### `"success"`
@@ -2818,6 +2851,14 @@ SHA-256: `68f44f59e91c41395076cb77265981a601680ec8a381bbbeb6ab754ffdc94573`
 SHA-256: `f68c335306535a001127dae6685ece493a0ee7f4e2a851197b6054d8a9ff7394`
 
 `"user-approval"`
+
+<a id="persistence-type-sha256-3665c851323b95a390bf3d2a3b9778b416be8c47ae43a0b5fcf077f494bc9623"></a>
+
+### `"user-question"`
+
+SHA-256: `3665c851323b95a390bf3d2a3b9778b416be8c47ae43a0b5fcf077f494bc9623`
+
+`"user-question"`
 
 <a id="persistence-type-sha256-de25352d2dc4196309bd84b5bac6319f6d5c898ea0e82bb5ae66c5738d0d426f"></a>
 
@@ -4081,6 +4122,23 @@ Sources: [`packages/api/session-controller/src/types.ts:100`](../packages/api/se
 | `model` | required | `string` |
 | `provider` | required | `string` |
 | `reasoningEffort` | optional | `string` |
+
+<a id="persistence-type-sha256-10df565f3141344c526d7dacc1d30442971413d9ff12c7368ef0f8893b5d821b"></a>
+
+<a id="persistence-type-modelselectionapproval"></a>
+
+<a id="persistence-type-packagessubagenttool-subagentsrcmodel-selection-statetsmodelselectionapproval"></a>
+
+### `ModelSelectionApproval`
+
+SHA-256: `10df565f3141344c526d7dacc1d30442971413d9ff12c7368ef0f8893b5d821b`
+
+Sources: [`packages/subagent/tool-subagent/src/model-selection-state.ts:11`](../packages/subagent/tool-subagent/src/model-selection-state.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `answer` | required | `string` |
+| `via` | required | `"user-question"` |
 
 <a id="persistence-type-sha256-8e8e91646a5cae3fc78f7532a0013ff2088ae47077642c2edd507a508209b8af"></a>
 
@@ -5515,11 +5573,25 @@ Sources: [`packages/preset/agent-preset-registry/src/session.ts:28`](../packages
 
 SHA-256: `0d47a8f3d847243c4488e755ad4cab7a04ac5d4621b9c81865524cf3f4d8536f`
 
-Sources: [`packages/subagent/tool-subagent/src/model-selection-state.ts:17`](../packages/subagent/tool-subagent/src/model-selection-state.ts)
+Sources: [`packages/subagent/tool-subagent/src/model-selection-state.ts:26`](../packages/subagent/tool-subagent/src/model-selection-state.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `allowedModels` | required | [`SessionTitleModelIdentity[]`](#persistence-type-sha256-ba77b58995e36f14bb13886b0493d0a1a63d5db10b1a6cd9f6ac65a72cf832ec) |
+
+<a id="persistence-type-sha256-81d75ce9e268926a91a0e3e68a95232edeb4f67b1f3e96ebf226decb9ddf5052"></a>
+
+### `{ allowedModels, approval, expectedRevision }`
+
+SHA-256: `81d75ce9e268926a91a0e3e68a95232edeb4f67b1f3e96ebf226decb9ddf5052`
+
+Sources: [`packages/subagent/tool-subagent/src/model-selection-state.ts:37`](../packages/subagent/tool-subagent/src/model-selection-state.ts)
+
+| Property | Presence | Type |
+|---|---|---|
+| `allowedModels` | required | [`SessionTitleModelIdentity[]`](#persistence-type-sha256-ba77b58995e36f14bb13886b0493d0a1a63d5db10b1a6cd9f6ac65a72cf832ec) |
+| `approval` | required | [`ModelSelectionApproval`](#persistence-type-sha256-10df565f3141344c526d7dacc1d30442971413d9ff12c7368ef0f8893b5d821b) |
+| `expectedRevision` | required | `number` |
 
 <a id="persistence-type-sha256-a853902cfab417b8f08aa51ad6855fea46f34ed4588a74e47403035111d0fb86"></a>
 
@@ -8323,6 +8395,22 @@ SHA-256: `a6567ccb2e530606b775371eb4fa31468d72084339968e8b0440a516a23b39dc`
 | `seq` | required | `number` |
 | `time` | required | `number` |
 | `type` | required | `"subagent/model-selection-policy"` |
+
+<a id="persistence-type-sha256-d56c14caff376741c36eec3aadd015c2b8911335123d06bfbda7d287b7fd32e1"></a>
+
+<a id="persistence-type-eventsubagentmodel-selection-policy-update"></a>
+
+### `{ type: "subagent/model-selection-policy-update" }`
+
+SHA-256: `d56c14caff376741c36eec3aadd015c2b8911335123d06bfbda7d287b7fd32e1`
+
+| Property | Presence | Type |
+|---|---|---|
+| `data` | required | [`{ allowedModels, approval, expectedRevision }`](#persistence-type-sha256-81d75ce9e268926a91a0e3e68a95232edeb4f67b1f3e96ebf226decb9ddf5052) |
+| `ignorable` | optional | `true` |
+| `seq` | required | `number` |
+| `time` | required | `number` |
+| `type` | required | `"subagent/model-selection-policy-update"` |
 
 <a id="persistence-type-sha256-69081694be231d56fd9580ba14645fd5e35373202605d5c5c841a9435b5fa3b1"></a>
 

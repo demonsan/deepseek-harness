@@ -70,6 +70,8 @@ import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import { registerListSubagentModels } from '../packages/subagent/tool-subagent/src/list-models.ts'
+import { registerModelRouteApproval } from '../packages/subagent/tool-subagent/src/model-selection-approval.ts'
+import { Session as CatalogSession, SessionId as CatalogSessionId } from '@deepseek-ai/dsh-session'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import WorkflowEngine from '@deepseek-ai/dsh-workflow'
 import type { WorkflowRun, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
@@ -531,9 +533,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-subagent',
     source: {
       list_subagent_models: 'packages/subagent/tool-subagent/src/list-models.ts',
+      request_subagent_model_routes: 'packages/subagent/tool-subagent/src/model-selection-approval.ts',
       subagent: 'packages/subagent/tool-subagent/src/index.ts',
     },
-    requires: ['ctx.tools', 'ctx.subagents', 'ctx.systemPrompt', 'ctx.llm for model discovery and selected-route validation'],
+    requires: ['ctx.tools', 'ctx.subagents', 'ctx.systemPrompt', 'ctx.llm for model discovery and selected-route validation', 'ctx.userQuestions for route-approval requests (execution time)'],
     writes: ['tool/call', 'tool/result', 'child session events through the chosen provider'],
     shippedNames: ['subagent', 'subagent_fork'],
     async mount(ctx) {
@@ -542,9 +545,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
       registerCatalogSubagentProvider(ctx, 'mock')
       await ctx.plugin(ToolSubagent, { provider: 'mock' })
       registerListSubagentModels(ctx, { routes: [{ provider: 'mock', model: 'mock' }] })
+      registerModelRouteApproval(ctx, CatalogSession.create(CatalogSessionId('catalog-approval')), () => undefined)
     },
     note:
-      'The registered delegation name is the load-time `toolName` config (default `subagent`); the default schema above has model selection off, while the discovery schema is shown as the fixed companion available in an enabled Session. Web presets sample the Plugins preference for each new top-level Session and preserve that decision for its child Sessions; `subagent_fork` remains fixed-route. Each instance independently controls whether it reads model-selection settings and its background behavior through `modelSelectionSettings`, `backgroundMode`, and `enableRunInBackground`.',
+      'The registered delegation name is the load-time `toolName` config (default `subagent`); the default schema above has model selection off, while the discovery schema is shown as the fixed companion available in an enabled Session. `request_subagent_model_routes` is registered for top-level Sessions of a settings-controlled instance and changes that Session\'s allowlist only after the user approves the exact resulting list. Web presets sample the Plugins preference for each new top-level Session and preserve that decision for its child Sessions; `subagent_fork` remains fixed-route. Each instance independently controls whether it reads model-selection settings and its background behavior through `modelSelectionSettings`, `backgroundMode`, and `enableRunInBackground`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',

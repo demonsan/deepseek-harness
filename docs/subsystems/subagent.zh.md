@@ -491,7 +491,19 @@ Singleton settings owner read when delegation tools are composed for a Session.
  * @returns the enabled state and exact allowed routes.
  */
 current(): SubagentModelSelectionSettings
+
+/**
+ * The routes one Session may select right now: its durable (and possibly
+ * user-updated) decision, resolved exactly as the delegation tool resolves
+ * it. Packages outside this one read authority here, so teammate routes and
+ * subagent routes cannot drift apart.
+ * @param session - Session whose authority is read.
+ * @returns exact routes, or undefined when the Session is fixed-route.
+ */
+allowedModelsFor(session: Session): AllowedModelRoute[] | undefined
 ```
+
+Types: [Session](session.zh.md)
 
 Source: [`packages/subagent/tool-subagent/src/model-selection-settings.ts`](../../packages/subagent/tool-subagent/src/model-selection-settings.ts)
 

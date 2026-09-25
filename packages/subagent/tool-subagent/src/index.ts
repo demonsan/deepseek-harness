@@ -16,7 +16,6 @@ import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import {
   assertSubagentMaxDepth,
@@ -32,11 +31,13 @@ import {
   preflightChildLlmRoute,
   requestedAgentOptions,
 } from './model-selection.ts'
-import type { DelegationModelRequest, ModelSelectionPolicy } from './model-selection.ts'
+import type { AllowedModelRoute, DelegationModelRequest, ModelSelectionPolicy } from './model-selection.ts'
 import { registerListSubagentModels } from './list-models.ts'
 import type {} from './model-selection-settings.ts'
+import { registerModelRouteApproval } from './model-selection-approval.ts'
 import {
   recordSubagentModelSelection,
+  resolveModelSelection,
   subagentModelSelectionProjectionDefinition,
   subagentModelSelectionPolicy,
 } from './model-selection-state.ts'
@@ -358,9 +359,18 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
   const initialProvider = ctx.subagents.getProvider(config.provider)
   if (initialProvider !== undefined) assertSubagentProviderConfiguration(initialProvider)
 
-  const install = (runtimeCtx: Context, modelSelectionPolicy: ModelSelectionPolicy | undefined): void => {
+  const install = (
+    runtimeCtx: Context,
+    modelSelectionPolicy: ModelSelectionPolicy | undefined,
+    approval?: { session: Session; onApproved: (previousRevision: number) => void },
+  ): void => {
     const modelSelectionEnabled = modelSelectionPolicy !== undefined
     if (modelSelectionPolicy !== undefined) registerListSubagentModels(runtimeCtx, modelSelectionPolicy)
+    // Only a runtime root can reach a user; a child's allowlist follows its
+    // parent's approved decision instead of asking for its own.
+    if (approval !== undefined && approval.session.header.origin !== 'subagent') {
+      registerModelRouteApproval(runtimeCtx, approval.session, approval.onApproved)
+    }
     // Load order and HMR replacement can change provider availability while
     // this fiber remains active.
     let mounted: { subagentProvider: SubagentProvider; disposeTool: () => void } | undefined
@@ -618,44 +628,27 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
       + '@deepseek-ai/dsh-tool-subagent/model-selection-settings in the Host scope',
     )
   }
+  // Discovery and dispatch read the Session's durable policy on every call,
+  // so an approved update takes effect without re-sampling anything else.
+  const livePolicy = (target: Session, captured: readonly AllowedModelRoute[]): ModelSelectionPolicy => ({
+    get routes() {
+      return subagentModelSelectionPolicy(ctx.sessionProjections, target) ?? captured
+    },
+  })
+
   const selectForSession = (target: Session): ModelSelectionPolicy | undefined => {
-    const freshSession = target.firstLiveSeq === 0
-      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-      && target.eventAt(SessionSeq(0))?.type !== 'session/end-seed'
-    let allowedModels = subagentModelSelectionPolicy(ctx.sessionProjections, target)
-    if (allowedModels === undefined) {
-      const parentId = target.header.origin === 'subagent'
-        ? target.header.parentSession
-        : undefined
-      if (parentId !== undefined) {
-        const sessions = ctx.get('sessions')
-        if (sessions === undefined) {
-          throw new Error('tool-subagent: child model-selection inheritance requires the Session registry')
-        }
-        const parent = sessions.get(parentId)
-        allowedModels = parent === undefined
-          ? undefined
-          : subagentModelSelectionPolicy(ctx.sessionProjections, parent)
-      }
-      // A child whose parent never captured a decision (the parent Session
-      // predates the opt-in, or was resumed without the policy event) would
-      // otherwise be permanently fixed-route, which also pins every Agent-Team
-      // teammate to the Lead route. Sample the current Host setting for it, the
-      // same way a fresh top-level Session does. Resumed top-level Sessions keep
-      // their captured decision: their tool schema must stay stable mid-history.
-      if (allowedModels === undefined && (parentId !== undefined || freshSession)) {
-        const current = settings.current()
-        allowedModels = current.enabled ? current.allowedModels : undefined
-      }
-    }
+    const allowedModels = resolveModelSelection(ctx.sessionProjections, ctx.get('sessions'), settings, target)
     if (allowedModels !== undefined) {
       recordSubagentModelSelection(ctx.sessionProjections, target, allowedModels)
     }
-    return allowedModels === undefined ? undefined : { routes: allowedModels }
+    return allowedModels === undefined ? undefined : livePolicy(target, allowedModels)
   }
 
   if (session !== undefined) {
-    install(ctx, selectForSession(session))
+    // A per-session composition keeps its tool set for the life of the fiber.
+    // Route changes still apply through the live policy; a Session that had
+    // no policy gains the route fields when it is next composed.
+    install(ctx, selectForSession(session), { session, onApproved: () => undefined })
     return
   }
 
@@ -681,7 +674,15 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
     try {
       const policy = selectForSession(candidate.session)
       fiber = candidate.ctx.inject(['tools', 'subagents', 'systemPrompt'], (runtimeCtx) => {
-        install(runtimeCtx, policy)
+        install(runtimeCtx, policy, {
+          session: candidate.session,
+          onApproved: (previousRevision) => {
+            // Route changes apply through the live policy. Only a Session
+            // that had no policy needs new definitions: the route fields and
+            // list_subagent_models are absent from its fixed-route schema.
+            if (previousRevision === 0) scheduleReinstall(candidate)
+          },
+        })
       })
     } finally {
       installing.delete(candidate)
@@ -697,6 +698,30 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
     void fiber.dispose().catch((error: unknown) => {
       ctx.logger.warn(`tool-subagent: failed to remove recomposed Agent "${candidate.id}" definitions: ${String(error)}`)
     })
+  }
+  /**
+   * Replace one Agent's definitions after its policy first appears. Deferred
+   * so the approving tool call settles before its own registration is
+   * replaced; held in `installing` while the old fiber disposes so the
+   * `tools/change` it emits cannot race a second install.
+   */
+  const scheduleReinstall = (candidate: Agent): void => {
+    setTimeout(() => {
+      void (async () => {
+        const existing = scopedInstalls.get(candidate)
+        if (existing === undefined) return
+        installing.add(candidate)
+        scopedInstalls.delete(candidate)
+        try {
+          await existing.dispose()
+        } finally {
+          installing.delete(candidate)
+        }
+        if (agents.get(candidate.id) === candidate && belongsToComposition(candidate)) installScoped(candidate)
+      })().catch((error: unknown) => {
+        ctx.logger.warn(`tool-subagent: failed to recompose Agent "${candidate.id}" after a policy update: ${String(error)}`)
+      })
+    }, 0)
   }
   const reconcileComposedAgents = (): void => {
     for (const candidate of agents.list()) {

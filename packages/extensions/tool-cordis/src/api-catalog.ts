@@ -2747,6 +2747,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
         returns: 'the enabled state and exact allowed routes.',
       },
+      {
+        signature: 'allowedModelsFor(session: Session): AllowedModelRoute[] | undefined',
+        description: 'The routes one Session may select right now: its durable (and possibly user-updated) decision, resolved exactly as the delegation tool resolves it. Packages outside this one read authority here, so teammate routes and subagent routes cannot drift apart.',
+        parameters: [{ name: 'session', description: 'Session whose authority is read.' }],
+        returns: 'exact routes, or undefined when the Session is fixed-route.',
+      },
     ],
   },
   {
@@ -4326,6 +4332,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentStatus',
     declaration: 'export type AgentStatus = \'idle\' | \'running\';',
+  },
+  {
+    name: 'AllowedModelRoute',
+    declaration: 'export interface AllowedModelRoute {\n    readonly provider: string;\n    readonly model: string;\n}',
   },
   {
     name: 'ApiKeyRecord',

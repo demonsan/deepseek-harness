@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -764,6 +764,42 @@ describe('dsh-tool-team', () => {
     expect(spawn).not.toHaveBeenCalled()
     expect(replace).not.toHaveBeenCalled()
     expect(ctx.agentTeams.listMembers(lead).filter(member => member.role === 'teammate')).toEqual([])
+  })
+
+  it('checks teammate routes against the Lead Session\'s authority, not the Host setting', async () => {
+    // The Host offers one list; the Session holds a different, user-approved one.
+    class SessionScopedSelection extends Service {
+      constructor(ctx: Context) {
+        super(ctx, 'subagentModelSelection')
+      }
+
+      current() {
+        return { enabled: true, allowedModels: [{ provider: 'mock', model: 'host-only' }] }
+      }
+
+      allowedModelsFor(_session: unknown) {
+        return [{ provider: 'mock', model: 'mock' }, { provider: 'mock', model: 'session-approved' }]
+      }
+    }
+    const { ctx, lead } = await setup([])
+    await ctx.plugin(SessionScopedSelection)
+    const spawn = vi.spyOn(ctx.agentTeams, 'spawnTeammate').mockResolvedValue({
+      member: {
+        id: SessionId('route-authority'), name: 'verifier', role: 'teammate',
+        status: 'running', description: 'verify', diagnostics: [],
+      },
+    })
+    const approved = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'verifier', description: 'verify', prompt: 'go', provider: 'mock', model: 'session-approved',
+    })
+    expect(approved.isError).toBe(false)
+    const hostOnly = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'verifier', description: 'verify', prompt: 'go', provider: 'mock', model: 'host-only',
+    })
+    expect(hostOnly.isError).toBe(true)
+    expect(text(hostOnly)).toContain('"mock/host-only" is not allowed for this Session')
+    expect(text(hostOnly)).toContain('request_subagent_model_routes')
+    expect(spawn).toHaveBeenCalledTimes(1)
   })
 
   it('lets a supported effort and an inherited route through the preflight', async () => {

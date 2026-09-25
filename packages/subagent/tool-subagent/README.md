@@ -68,6 +68,8 @@ Set `modelSelectionSettings: true` to sample the Host's `subagent-model-selectio
 
 A call supplies `provider` and `model` together, or supplies only an effort when configured, parent, or provider-owned defaults provide the route. Static `provider.agentRouteDefaults`, when present, form the provider/model baseline; tool configuration and model fields overlay it before route-aware effort merging and exact-route preflight. Providers without these defaults use compatible values from the parent's latest logged request, then the parent's creation options before its first request, while retaining the configured `maxTokens`. Changing the route without an explicit effort clears the inherited route-owned effort, so the selected model resolves its default. The live LLM adapter validates the effective route before child creation. Catalog membership remains advisory, so a model can use an unlisted id when its adapter accepts it.
 
+A Session's recorded list changes only with the user's explicit approval. A top-level Session registers `request_subagent_model_routes`, which takes routes to add or remove as `provider/model`, rejects any route the live adapter cannot resolve, and asks the user through `ctx.userQuestions` to approve the exact resulting list against its current revision. Only the `Approve` option writes a `subagent/model-selection-policy-update` record; any other answer, a missing answerer, or a delegated caller changes nothing. The record names the revision it replaced, and both the writer and the fold reject a revision mismatch, so a stale request cannot overwrite a newer decision. The Host setting is neither copied in nor changed. Discovery, delegation dispatch, and Agent Teams teammate routes read the same current decision, so an approved route is visible and dispatchable at once; a Session that had no policy is recomposed with the selection fields after its first approval. The update is an ordinary log record, so a restart replays it.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -101,7 +103,8 @@ The tool's description derives from `provider.inheritsParentContext`: a fresh ch
 | [`src/index.ts`](src/index.ts) | Tool registration, lifecycle mirroring, mode resolution, result settlement |
 | [`src/model-selection.ts`](src/model-selection.ts) | Request/config merge and live LLM route preflight |
 | [`src/model-selection-settings.ts`](src/model-selection-settings.ts) | Host-owned opt-in setting sampled for new Sessions |
-| [`src/model-selection-state.ts`](src/model-selection-state.ts) | Session event that records and inherits the sampled decision |
+| [`src/model-selection-state.ts`](src/model-selection-state.ts) | Session events that record, inherit, and revise the route decision; the shared resolver |
+| [`src/model-selection-approval.ts`](src/model-selection-approval.ts) | `request_subagent_model_routes`: user-approved allowlist updates |
 | [`src/list-models.ts`](src/list-models.ts) | `list_subagent_models` runtime discovery tool |
 
 </details>
@@ -143,7 +146,7 @@ Prefix-stable while provider instances and their configuration are unchanged. Ad
 
 #### What the model sees
 
-A settings-controlled instance whose Session carries a policy exposes the child LLM selection fields and `list_subagent_models`. Calls reject while the optional `ctx.llm` service is unavailable. Discovery returns only registered providers and advertised models in the exact route policy; an unauthorized provider is rejected before its adapter catalog is called, and an exact lookup must be allowed before it resolves the model's reasoning efforts and default. Execution independently enforces the same policy.
+A settings-controlled instance whose Session carries a policy exposes the child LLM selection fields and `list_subagent_models`. Calls reject while the optional `ctx.llm` service is unavailable. Discovery returns only registered providers and advertised models in the exact route policy; an unauthorized provider is rejected before its adapter catalog is called, and an exact lookup must be allowed before it resolves the model's reasoning efforts and default. Execution independently enforces the same policy. A top-level Session also sees `request_subagent_model_routes`; its result reports `approved`, `declined`, or `unchanged` with the current revision and list, and the user sees the proposed list in an approval question.
 
 #### Token effect
 

@@ -68,6 +68,8 @@ kind: "package-reference"
 
 一次调用需同时提供 `provider` 与 `model`；当配置值、父 agent 值或提供方持有的默认值能提供路由时，也可只提供推理等级。静态的 `provider.agentRouteDefaults` 在存在时构成提供方／模型基线；工具配置与模型字段会在路由相关强度合并和确切路由预检前覆盖它。没有这些默认值的提供方会使用父 agent 最新已记录请求中的兼容值，再使用父级首次请求前的创建选项，并保留配置的 `maxTokens`。更改路由但未显式提供推理等级时，会清除继承的路由自有等级，使所选模型解析自己的默认值。实时 LLM 适配器在创建子 agent 前校验有效路由。目录成员资格只提供建议，因此适配器接受时，模型可以使用未列出的 id。
 
+Session 已记录的列表只有在用户明确批准时才会改变。顶层 Session 会注册 `request_subagent_model_routes`：它以 `provider/model` 形式接收要添加或移除的路由，拒绝实时适配器无法解析的路由，并通过 `ctx.userQuestions` 请用户针对当前 revision 批准确切的结果列表。只有选择 `Approve` 选项才会写入 `subagent/model-selection-policy-update` 记录；其他任何回答、没有应答方或委派调用方都不会改变任何内容。记录写明它替换的 revision，写入方和折叠都会拒绝 revision 不符，因此过期请求无法覆盖更新的决定。宿主设置既不会被复制进来，也不会被修改。发现、委派派发与 Agent Teams 的 teammate 路由读取同一个当前决定，因此批准的路由会立即可见且可派发；原本没有策略的 Session 在首次批准后会以带选择字段的形式重新组合。更新是普通的日志记录，所以重启时会被重放。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -101,7 +103,8 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 工具注册、生命周期镜像、模式解析、结果结算 |
 | [`src/model-selection.ts`](src/model-selection.ts) | 请求／配置合并与实时 LLM 路由预检 |
 | [`src/model-selection-settings.ts`](src/model-selection-settings.ts) | 为新 Session 读取的宿主所有 opt-in 设置 |
-| [`src/model-selection-state.ts`](src/model-selection-state.ts) | 记录并继承已读取决定的 Session 事件 |
+| [`src/model-selection-state.ts`](src/model-selection-state.ts) | 记录、继承并修订路由决定的 Session 事件；共享的解析函数 |
+| [`src/model-selection-approval.ts`](src/model-selection-approval.ts) | `request_subagent_model_routes`：经用户批准的允许列表更新 |
 | [`src/list-models.ts`](src/list-models.ts) | `list_subagent_models` 运行时发现工具 |
 
 </details>
@@ -143,7 +146,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-Session 携带策略的 settings 控制实例会公开子级 LLM 选择字段与 `list_subagent_models`。可选 `ctx.llm` 服务不可用时，调用会失败。发现只返回精确路由策略中的已注册提供方与已公布模型；未授权提供方会在调用其适配器目录前被拒绝，精确查询也必须先获准，才会解析模型的推理强度与默认值。执行阶段会独立强制同一策略。
+Session 携带策略的 settings 控制实例会公开子级 LLM 选择字段与 `list_subagent_models`。可选 `ctx.llm` 服务不可用时，调用会失败。发现只返回精确路由策略中的已注册提供方与已公布模型；未授权提供方会在调用其适配器目录前被拒绝，精确查询也必须先获准，才会解析模型的推理强度与默认值。执行阶段会独立强制同一策略。顶层 Session 还会看到 `request_subagent_model_routes`；其结果报告 `approved`、`declined` 或 `unchanged` 以及当前 revision 与列表，用户会在一个批准问题中看到拟议的列表。
 
 #### Token 影响
 

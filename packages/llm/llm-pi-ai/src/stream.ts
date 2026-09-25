@@ -68,16 +68,6 @@ function classifyPiAiError(message: string): string {
 }
 
 /**
- * Map a terminal pi-ai event to the harness finish reason.
- * @param message - the assistant message carried by the `done` or `error` event.
- * @param contextWindow - resolved catalog capacity for usage-based overflow detection.
- * @returns the mapped harness reason. Recognized error text, `stop` usage above
- *   `contextWindow`, and zero-output `length` usage that fills the window map
- *   to `CONTEXT_WINDOW_EXCEEDED`; a `stop` with no content blocks maps to an
- *   `EMPTY_RESPONSE` error, while terminal `pending` and `deferred` states map
- *   to non-retryable `PI_AI_ERROR` failures.
- */
-/**
  * Whether a finish reports that the request referenced an item created by a
  * different Azure OpenAI resource.
  *
@@ -93,6 +83,16 @@ export function isCrossResourceItemFailure(reason: FinishReason): boolean {
     && /created under a different Azure OpenAI resource/i.test(reason.failure.message)
 }
 
+/**
+ * Map a terminal pi-ai event to the harness finish reason.
+ * @param message - the assistant message carried by the `done` or `error` event.
+ * @param contextWindow - resolved catalog capacity for usage-based overflow detection.
+ * @returns the mapped harness reason. Recognized error text, `stop` usage above
+ *   `contextWindow`, and zero-output `length` usage that fills the window map
+ *   to `CONTEXT_WINDOW_EXCEEDED`; a `stop` with no content blocks maps to an
+ *   `EMPTY_RESPONSE` error, while terminal `pending` and `deferred` states map
+ *   to non-retryable `PI_AI_ERROR` failures.
+ */
 export function mapStopReason(message: AssistantMessage, contextWindow?: number): FinishReason {
   const piAiOverflow = isContextOverflow(message, contextWindow)
   const harnessOverflow = message.stopReason === 'error'
