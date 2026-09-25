@@ -60,7 +60,8 @@ import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { createModels, getSupportedThinkingLevels } from './models.ts'
-import { toStreamChunks } from './stream.ts'
+import { withoutReplayState } from './replay.ts'
+import { isCrossResourceItemFailure, toStreamChunks } from './stream.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
@@ -366,9 +367,9 @@ export class PiAiAdapter extends LlmAdapter {
       const onReplayDegrade = (reason: string): void => {
         this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
       }
-      const context = attachments === undefined
-        ? toPiContext(options, undefined, onReplayDegrade)
-        : await toPiContext({ ...options, signal: watchdog.signal }, {
+      const buildContext = async (request: GenerateOptions) => attachments === undefined
+        ? toPiContext(request, undefined, onReplayDegrade)
+        : await toPiContext({ ...request, signal: watchdog.signal }, {
           attachments,
           resolveImageAccess: ref => this.config.resolveImageAccess?.(attachments, ref),
           maxRequestImageBytes: profile.maxRequestImageBytes,
@@ -377,28 +378,66 @@ export class PiAiAdapter extends LlmAdapter {
             maxBytes: profile.requestImageMaxBytes,
           },
         }, onReplayDegrade)
-      const events = snapshot.models.streamSimple(model, context, {
-        ...profileOptions(profile, reasoning, apiKey),
-        ...options.temperature === undefined ? {} : { temperature: options.temperature },
-        ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
-        ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
-        signal: watchdog.signal,
-        // Profile headers are deployment-owned; attribution names are
-        // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
-      })
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
+      const open = (context: Awaited<ReturnType<typeof buildContext>>) => toStreamChunks(
+        snapshot.models.streamSimple(model, context, {
+          ...profileOptions(profile, reasoning, apiKey),
+          ...options.temperature === undefined ? {} : { temperature: options.temperature },
+          ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+          ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+          signal: watchdog.signal,
+          // Profile headers are deployment-owned; attribution names are
+          // Harness-owned and therefore win collisions.
+          headers: requestHeaders(profile.headers),
+        }),
+        model.contextWindow,
+        options.signal,
+        model.id,
+      )[Symbol.asyncIterator]()
+
+      // A gateway can serve one provider name from several backend resources.
+      // Replayed reasoning items and message ids belong to the resource that
+      // issued them, so a request routed elsewhere — typically after an idle
+      // gap — is rejected before anything is produced. Retry that one failure
+      // once with provider-neutral history. Chunks are held only until the
+      // first content chunk, so a retry never follows emitted output.
+      let iterator = open(await buildContext(options))
       let exhausted = false
       try {
+        let held: StreamChunk[] | undefined = []
+        let retried = false
         while (true) {
           const result = await watchdog.next(iterator)
           const timeout = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')
           if (timeout !== undefined) throw timeout
           if (result.done) {
+            if (held !== undefined) for (const chunk of held) yield chunk
             exhausted = true
             return
           }
-          yield result.value
+          const chunk = result.value
+          if (held === undefined) {
+            yield chunk
+            continue
+          }
+          if (chunk.type === 'finish' && !retried && isCrossResourceItemFailure(chunk.reason)) {
+            retried = true
+            onReplayDegrade('request referenced an item from a different backend resource; retrying without replay state')
+            try {
+              await iterator.return(undefined)
+            } catch (_finishedSdkTeardown) {
+              // The failed stream already delivered its terminal event.
+            }
+            iterator = open(await buildContext({ ...options, messages: withoutReplayState(options.messages) }))
+            held = []
+            continue
+          }
+          if (chunk.type === 'usage' || chunk.type === 'finish') {
+            held.push(chunk)
+            continue
+          }
+          for (const pending of held) yield pending
+          held = undefined
+          yield chunk
         }
       } finally {
         if (!exhausted) {

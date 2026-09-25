@@ -77,6 +77,22 @@ function classifyPiAiError(message: string): string {
  *   `EMPTY_RESPONSE` error, while terminal `pending` and `deferred` states map
  *   to non-retryable `PI_AI_ERROR` failures.
  */
+/**
+ * Whether a finish reports that the request referenced an item created by a
+ * different Azure OpenAI resource.
+ *
+ * Replayed reasoning items and message ids belong to the backend resource
+ * that issued them. When a gateway routes the next request to a different
+ * resource behind the same provider name — typical after a long idle gap —
+ * that resource rejects the request with this 400 before producing anything.
+ * @param reason - one terminal finish reason.
+ * @returns whether retrying without replay state can succeed.
+ */
+export function isCrossResourceItemFailure(reason: FinishReason): boolean {
+  return reason.kind === 'error'
+    && /created under a different Azure OpenAI resource/i.test(reason.failure.message)
+}
+
 export function mapStopReason(message: AssistantMessage, contextWindow?: number): FinishReason {
   const piAiOverflow = isContextOverflow(message, contextWindow)
   const harnessOverflow = message.stopReason === 'error'

@@ -9,12 +9,13 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createMessage, createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
+import { toPiReplayState } from '../src/replay.ts'
 import { memoryAuth } from './auth-double.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -353,6 +354,107 @@ describe('PiAiAdapter provider routing', () => {
 
     expect(result.finish).toMatchObject({ kind: 'error' })
     expect(server.paths).toEqual(['/v1/responses'])
+  })
+
+  describe('a gateway serving one route from several backend resources', () => {
+    const CROSS_RESOURCE = 'The requested item was created under a different Azure OpenAI resource. Use the same resource that created the item to access it.'
+    const reasoningItem = { type: 'reasoning', id: 'rs_foreign', summary: [], encrypted_content: 'enc' }
+    const responsesText = [
+      '{"type":"response.created","response":{"id":"resp_2"}}',
+      JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: { type: 'message', id: 'msg_2', role: 'assistant', content: [] } }),
+      JSON.stringify({ type: 'response.content_part.added', output_index: 0, content_index: 0, part: { type: 'output_text', text: '' } }),
+      JSON.stringify({ type: 'response.output_text.delta', output_index: 0, content_index: 0, delta: 'recovered' }),
+      JSON.stringify({ type: 'response.output_item.done', output_index: 0, item: {
+        type: 'message', id: 'msg_2', role: 'assistant', status: 'completed',
+        content: [{ type: 'output_text', text: 'recovered', annotations: [] }],
+      } }),
+      JSON.stringify({ type: 'response.completed', response: {
+        id: 'resp_2', status: 'completed', output: [], usage: { input_tokens: 3, output_tokens: 1, total_tokens: 4 },
+      } }),
+    ]
+
+    /** History whose assistant turn carries a reasoning item issued by one backend resource. */
+    function historyWithReplayedReasoning() {
+      const replayState = toPiReplayState({
+        role: 'assistant',
+        api: 'openai-responses',
+        provider: 'openai',
+        model: 'gpt-4.1',
+        responseId: 'resp_1',
+        stopReason: 'stop',
+        timestamp: 0,
+        usage: {
+          input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        content: [
+          { type: 'thinking', thinking: 'earlier reasoning', thinkingSignature: JSON.stringify(reasoningItem) },
+          { type: 'text', text: 'earlier answer' },
+        ],
+      }, 'gpt-4.1')
+      return [
+        createUserMessage({ content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } }),
+        createMessage({
+          role: 'assistant',
+          content: [{ type: 'reasoning', text: 'earlier reasoning' }, { type: 'text', text: 'earlier answer' }],
+          source: { kind: 'model', provider: 'openai', model: 'gpt-4.1', replayState },
+        }),
+        createUserMessage({ content: [{ type: 'text', text: 'second' }], source: { kind: 'user' } }),
+      ]
+    }
+
+    async function run(script: Parameters<typeof mockServer>[0]) {
+      const server = await mockServer(script)
+      const degraded: string[] = []
+      const adapter = new PiAiAdapter({
+        profiles: () => resolveProfiles({ openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` } }),
+        resolveApiKey: () => Promise.resolve('test-key'),
+        auth: memoryAuth(),
+        onReplayDegrade: (detail) => { degraded.push(detail.reason) },
+      })
+      const chunks = []
+      for await (const chunk of adapter.stream({ provider: 'openai', model: 'gpt-4.1', messages: historyWithReplayedReasoning() })) {
+        chunks.push(chunk)
+      }
+      return { server, chunks, degraded }
+    }
+
+    const inputIds = (request: unknown): string[] =>
+      ((request as { input?: { id?: string }[] }).input ?? []).flatMap(item => item.id === undefined ? [] : [item.id])
+
+    it('retries once without replay state when a request references another resource\'s item', async () => {
+      const { server, chunks, degraded } = await run([
+        { status: 400, body: JSON.stringify({ error: { message: CROSS_RESOURCE, type: 'invalid_request_error' } }) },
+        { events: responsesText },
+      ])
+
+      expect(server.requests).toHaveLength(2)
+      expect(inputIds(server.requests[0])).toContain('rs_foreign')
+      expect(inputIds(server.requests[1])).not.toContain('rs_foreign')
+      expect(JSON.stringify(server.requests[1])).toContain('earlier answer')
+      expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
+      expect(chunks.filter(chunk => chunk.type === 'finish')).toHaveLength(1)
+      expect(degraded).toEqual([expect.stringContaining('different backend resource')])
+    })
+
+    it('does not retry a different request failure', async () => {
+      const { server, chunks } = await run([
+        { status: 400, body: JSON.stringify({ error: { message: 'unrelated invalid request', type: 'invalid_request_error' } }) },
+        { events: responsesText },
+      ])
+      expect(server.requests).toHaveLength(1)
+      expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'error' } })
+    })
+
+    it('retries at most once', async () => {
+      const failure = { status: 400, body: JSON.stringify({ error: { message: CROSS_RESOURCE, type: 'invalid_request_error' } }) }
+      const { server, chunks } = await run([failure, failure, { events: responsesText }])
+      expect(server.requests).toHaveLength(2)
+      const finish = chunks.at(-1)
+      expect(finish).toMatchObject({ type: 'finish', reason: { kind: 'error' } })
+      expect(JSON.stringify(finish)).toContain('different Azure OpenAI resource')
+      expect(chunks.filter(chunk => chunk.type === 'finish')).toHaveLength(1)
+    })
   })
 
   it('uses OpenAI Responses against an Azure project v1 path with its API key header', async () => {
