@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-25-approved-subagent-routes.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-09-25-approved-subagent-routes.md
-2026-09-25-approved-subagent-routes.md: 1b44f6401486cc879f4af4b03c5a65f715470ee7
-2026-09-25-approved-subagent-routes.zh.md: 3955f0defd20ab958fe76dcdc17cda50823ff41d
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-09-25-approved-subagent-routes:
+  en: 2240cd8ddb030aaa
+  zh: 23b895a3c1b18f23
+/2026-09-25-approved-subagent-routes/summary:
+  en: 879a6d3c35ce00b1
+  zh: ee8cd612630ebb13
+/2026-09-25-approved-subagent-routes/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-09-25-approved-subagent-routes/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-09-25-approved-subagent-routes/compatibility:
+  en: 8344e3ac940f4eea
+  zh: f7fc61e031d92eb6
+/2026-09-25-approved-subagent-routes/verification:
+  en: 63d42c0ae6dac2c7
+  zh: 5b8129ba6cfb21ed
+/2026-09-25-approved-subagent-routes/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

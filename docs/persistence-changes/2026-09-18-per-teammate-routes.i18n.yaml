@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-18-per-teammate-routes.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-09-18-per-teammate-routes.md
-2026-09-18-per-teammate-routes.md: af272150714b5fc6f697f8c9810c492f8ee93819
-2026-09-18-per-teammate-routes.zh.md: 2cf4ae08ef6b10737add4789b5666b63fe9b4715
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-09-18-per-teammate-routes:
+  en: 8deea2a1dc56828b
+  zh: 8b2a3f326781ecca
+/2026-09-18-per-teammate-routes/summary:
+  en: 8c566d0a0915ff39
+  zh: f2d844b5ac36a9ec
+/2026-09-18-per-teammate-routes/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-09-18-per-teammate-routes/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-09-18-per-teammate-routes/compatibility:
+  en: e919f7f6d1603c8e
+  zh: 7a5056b95a2fcda5
+/2026-09-18-per-teammate-routes/verification:
+  en: 0a676839fbba6ee2
+  zh: 093b38d3b89089c9
+/2026-09-18-per-teammate-routes/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269
