@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { MessageId } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import type { ContinuableStart } from '@deepseek-ai/dsh-subagent'
@@ -13,13 +14,17 @@ import type { TeamJournal } from './journal.ts'
 import type { TeamRuntimeLifecycle } from './lifecycle.ts'
 import { readPersistedSession } from './persisted.ts'
 import type { TeamState } from './projection.ts'
-import { messageAccepted } from './session-message.ts'
+import { firstTurnFailure, messageAccepted } from './session-message.ts'
 import { TeamId } from './types.ts'
 import type {
+  ReplaceTeammateRequest,
+  ReplaceTeammateResult,
   SpawnTeammateRequest,
   SpawnTeammateResult,
   TeamMemberSnapshot,
   TeamMemberView,
+  TeammateAgentOptions,
+  TeamTaskId,
 } from './types.ts'
 import { requiredText } from './validation.ts'
 
@@ -47,7 +52,9 @@ export function resolveActiveMember(
 ): { id: SessionId; name: string } {
   const name = rawName.trim()
   if (name === 'lead') return { id: root.id, name }
-  const member = state.members.find(candidate => candidate.name === name)
+  // A replaced row keeps its name for history; only its successor answers to it.
+  const member = state.members.find(candidate =>
+    candidate.name === name && candidate.supersededBy === undefined)
   if (member === undefined || member.phase !== 'active') {
     throw new TeamError(`active teammate "${name}" not found`, 'TEAM_MEMBER_NOT_FOUND')
   }
@@ -63,12 +70,14 @@ export class TeamRoster {
    * @param journal - authoritative Lead-log transaction owner.
    * @param lifecycle - shared Team runtime admission cutoff.
    * @param maxMembers - maximum immutable roster entries per Team.
+   * @param transferTasks - moves in-progress work across a supersession, inside the roster's own transaction.
    */
   constructor(
     private readonly ctx: Context,
     private readonly journal: TeamJournal,
     private readonly lifecycle: TeamRuntimeLifecycle,
     private readonly maxMembers: number,
+    private readonly transferTasks: (root: Agent, from: SessionId, to: SessionId) => Promise<TeamTaskId[]>,
   ) {}
 
   /**
@@ -139,20 +148,26 @@ export class TeamRoster {
     }]
     for (const member of state.members) {
       const live = this.ctx.agents.get(member.id)
-      const model = live?.options.model ?? root.options.model
+      // Live truth first, then this member's own durable record. Only a member
+      // recorded before per-teammate routes falls back to the Lead route, which
+      // is what it actually inherited.
+      const model = live?.options.model ?? member.model ?? root.options.model
       result.push({
         id: member.id,
         name: member.name,
         role: 'teammate',
-        status: member.phase === 'failed'
-          ? 'failed'
-          : member.phase === 'provisioning'
-            ? 'provisioning'
-            : availability(live),
+        status: member.supersededBy !== undefined
+          ? 'superseded'
+          : member.phase === 'failed'
+            ? 'failed'
+            : member.phase === 'provisioning'
+              ? 'provisioning'
+              : availability(live),
         description: member.description,
         provider: member.provider,
         context: member.context,
         ...model === undefined ? {} : { model },
+        ...member.supersededBy === undefined ? {} : { supersededBy: member.supersededBy },
         diagnostics: member.error === undefined ? [] : [member.error],
       })
     }
@@ -168,6 +183,23 @@ export class TeamRoster {
   async spawn(caller: Agent, request: SpawnTeammateRequest): Promise<SpawnTeammateResult> {
     if (this.lifecycle.disposed) throw new TeamError('Agent Teams service is disposing', 'TEAM_DISPOSED')
     const operation = this.spawnAdmitted(caller, request)
+    this.inFlightCreations.add(operation)
+    try {
+      return await operation
+    } finally {
+      this.inFlightCreations.delete(operation)
+    }
+  }
+
+  /**
+   * Supersede one settled teammate with a new route under the same name.
+   * @param caller - exact live Lead Agent.
+   * @param request - teammate name, replacement prompt, optional route, and cancellation.
+   * @returns the replacement's active roster row.
+   */
+  async replace(caller: Agent, request: ReplaceTeammateRequest): Promise<ReplaceTeammateResult> {
+    if (this.lifecycle.disposed) throw new TeamError('Agent Teams service is disposing', 'TEAM_DISPOSED')
+    const operation = this.replaceAdmitted(caller, request)
     this.inFlightCreations.add(operation)
     try {
       return await operation
@@ -263,29 +295,128 @@ export class TeamRoster {
       description,
       provider: requiredText(request.provider, 'provider', 200),
       context: request.context,
+      // Only an explicit per-teammate override is durable. A teammate that
+      // inherits the Lead route keeps reading it from the Lead, so a later Lead
+      // route change stays reflected instead of freezing a stale copy here.
+      ...request.agentOptions?.model === undefined
+        ? {}
+        : { model: request.agentOptions.model },
       phase: 'provisioning',
     }
 
     await this.journal.transact(root.id, async () => {
       const state = this.journal.state(root)
-      if (state.members.some(member => member.name === name)) {
+      // Superseded rows are history: they neither hold their name nor occupy a slot.
+      const live = state.members.filter(candidate => candidate.supersededBy === undefined)
+      if (live.some(candidate => candidate.name === name)) {
         throw new TeamError(`teammate name "${name}" was already used in this Team`, 'TEAM_MEMBER_NAME_TAKEN')
       }
-      if (state.members.length >= this.maxMembers) {
+      if (live.length >= this.maxMembers) {
         throw new TeamError(`Team member limit ${this.maxMembers} reached`, 'TEAM_MEMBER_LIMIT')
       }
       await this.journal.appendAndFlush(root, 'team/member', { version: 2, teamId: TeamId(root.id), member })
     })
 
+    return await this.startProvisionedMember(root, member, request.prompt, request.agentOptions, signal)
+  }
+
+  /** Perform one replacement admitted before the Team runtime disposal cutoff. */
+  private async replaceAdmitted(
+    caller: Agent,
+    request: ReplaceTeammateRequest,
+  ): Promise<ReplaceTeammateResult> {
+    const membership = this.membership(caller)
+    if (membership.role !== 'lead') {
+      throw new TeamError('only the Team Lead can replace teammates', 'TEAM_LEAD_REQUIRED')
+    }
+    const signal = AbortSignal.any([request.signal, this.lifecycle.signal])
+    signal.throwIfAborted()
+    const root = membership.root
+    const name = this.memberName(request.name)
+    const childId = brandString<SessionId>(randomUUID())
+    let member!: TeamMemberSnapshot
+    let transferred: TeamTaskId[] = []
+
+    await this.journal.transact(root.id, async () => {
+      const state = this.journal.state(root)
+      const current = state.members.find(candidate =>
+        candidate.name === name && candidate.supersededBy === undefined)
+      if (current === undefined) {
+        throw new TeamError(`teammate "${name}" not found`, 'TEAM_MEMBER_NOT_FOUND')
+      }
+      if (current.phase === 'provisioning') {
+        throw new TeamError(`teammate "${name}" is still provisioning`, 'TEAM_MEMBER_PROVISIONING')
+      }
+      // A live Activation owns turns, an inbox, and possibly task ownership.
+      // Replacing underneath it would strand all three.
+      if (this.ctx.agents.get(current.id) !== undefined) {
+        throw new TeamError(
+          `teammate "${name}" is live; interrupt it and let it settle before replacing it`,
+          'TEAM_MEMBER_LIVE',
+        )
+      }
+      member = {
+        id: childId,
+        name,
+        description: current.description,
+        provider: current.provider,
+        context: current.context,
+        // Same rule as creation: only an explicit route is durable, so a
+        // replacement that omits one goes back to tracking the Lead.
+        ...request.agentOptions?.model === undefined
+          ? {}
+          : { model: request.agentOptions.model },
+        phase: 'provisioning',
+      }
+      // Supersede first. The projection frees a name only once its holder
+      // points at a replacement, so appending the new row first is rejected.
+      await this.journal.appendAndFlush(root, 'team/member', {
+        version: 2,
+        teamId: TeamId(root.id),
+        member: { ...current, supersededBy: childId },
+      })
+      await this.journal.appendAndFlush(root, 'team/member', { version: 2, teamId: TeamId(root.id), member })
+      // Same transaction as the supersession: the board must never show a
+      // member that can no longer run still holding work.
+      transferred = await this.transferTasks(root, current.id, childId)
+    })
+
+    const started = await this.startProvisionedMember(root, member, request.prompt, request.agentOptions, signal)
+    return { ...started, transferredTasks: transferred }
+  }
+
+  /**
+   * Drive one appended provisioning row to its terminal edge. Creation and
+   * replacement share it: both own a durable provisioning record by this point
+   * and differ only in how that record entered the log.
+   */
+  private async startProvisionedMember(
+    root: Agent,
+    member: TeamMemberSnapshot,
+    prompt: ContentBlock[],
+    agentOptions: TeammateAgentOptions | undefined,
+    signal: AbortSignal,
+  ): Promise<SpawnTeammateResult> {
+    const childId = member.id
+    const name = member.name
     let started: ContinuableStart
     try {
       started = await this.ctx.subagents.startContinuable({
         childId,
-        provider: request.provider,
-        label: description,
+        provider: member.provider,
+        label: member.description,
         request: {
-          prompt: request.prompt,
+          prompt,
           parent: root,
+          // Optional per-teammate route. The continuation service merges it over
+          // the Lead route, so an omitted field keeps the Lead's own value.
+          ...agentOptions === undefined ? {} : { agentOptions: {
+            ...agentOptions.provider === undefined ? {} : { provider: agentOptions.provider },
+            ...agentOptions.model === undefined ? {} : { model: agentOptions.model },
+            ...agentOptions.reasoningEffort === undefined
+              ? {}
+              : { reasoningEffort: ReasoningEffortId(agentOptions.reasoningEffort) },
+          } },
         },
         signal,
       })
@@ -349,8 +480,11 @@ export class TeamRoster {
         const stored = await readPersistedSession(this.ctx.sessionPersistence, childId, signal)
         const suffix = stored.events.slice(stored.inheritedEventCount)
         if (messageAccepted(suffix, message => message.id === messageId)) return
+        const failure = firstTurnFailure(suffix)
         throw new TeamError(
-          `teammate "${childId}" initial prompt was not durably accepted`,
+          failure === undefined
+            ? `teammate "${childId}" initial prompt was not durably accepted`
+            : `teammate "${childId}" failed its first turn before accepting the initial prompt: ${failure}`,
           'TEAM_PROVISIONING_CONFLICT',
         )
       }
@@ -444,7 +578,12 @@ export class TeamRoster {
       description: member.description,
       provider: member.provider,
       context: member.context,
-      ...live?.options.model === undefined ? {} : { model: live.options.model },
+      // Same precedence as the roster listing: live truth, then this member's
+      // own durable record. A teammate that already settled keeps its route.
+      ...(live?.options.model ?? member.model) === undefined
+        ? {}
+        : { model: live?.options.model ?? member.model },
+      ...member.supersededBy === undefined ? {} : { supersededBy: member.supersededBy },
       diagnostics: [],
     }
   }

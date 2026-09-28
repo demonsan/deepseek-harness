@@ -17,6 +17,8 @@ import { TeamId, TeamTaskId } from './types.ts'
 import type {
   Config,
   CreateTeamTaskRequest,
+  ReplaceTeammateRequest,
+  ReplaceTeammateResult,
   SendTeamMessageRequest,
   SendTeamMessageResult,
   SpawnTeammateRequest,
@@ -93,7 +95,14 @@ export class TeamService extends Service {
     this.activity = new TeamActivity()
     this.lifecycle = new TeamRuntimeLifecycle(this.config.disposalTimeoutMs)
     this.journal = new TeamJournal(ctx, (root) => { this.activity.notify(TeamId(root.id)) })
-    this.roster = new TeamRoster(ctx, this.journal, this.lifecycle, this.config.maxMembers)
+    this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
+    this.roster = new TeamRoster(
+      ctx,
+      this.journal,
+      this.lifecycle,
+      this.config.maxMembers,
+      (root, from, to) => this.tasks.transferOwnership(root, from, to),
+    )
     this.mailbox = new TeamMailbox(
       ctx,
       this.journal,
@@ -102,7 +111,6 @@ export class TeamService extends Service {
       this.config.maxPendingMessagesPerMember,
       this.config.maxMessageBytes,
     )
-    this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
 
     ctx.on('session/event', (session, event) => { this.mailbox.observeSessionEvent(session, event) })
     ctx.on('agent/created', ({ agent }) => { this.scheduleRecovery(agent) })
@@ -149,6 +157,16 @@ export class TeamService extends Service {
    */
   async spawnTeammate(caller: Agent, request: SpawnTeammateRequest): Promise<SpawnTeammateResult> {
     return await this.roster.spawn(caller, request)
+  }
+
+  /**
+   * Replace one settled teammate with a new route under the same name.
+   * @param caller - exact live Lead Agent.
+   * @param request - teammate name, replacement prompt, optional route, and cancellation.
+   * @returns the replacement's active roster row.
+   */
+  async replaceTeammate(caller: Agent, request: ReplaceTeammateRequest): Promise<ReplaceTeammateResult> {
+    return await this.roster.replace(caller, request)
   }
 
   /**

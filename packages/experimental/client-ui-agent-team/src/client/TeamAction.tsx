@@ -24,7 +24,7 @@ export interface TeamActionInjected {
 }
 
 /** Durable lifecycle overlaid with the member Session's live turn activity. */
-type MemberStatus = 'running' | 'inactive' | 'provisioning' | 'failed'
+type MemberStatus = 'running' | 'inactive' | 'provisioning' | 'failed' | 'superseded'
 
 /** Full props of the Team conversation-header action. */
 export type TeamActionProps =
@@ -46,6 +46,7 @@ function memberStatusKey(status: MemberStatus): TeamKey {
     case 'inactive': return 'memberStatus.inactive'
     case 'provisioning': return 'memberStatus.provisioning'
     case 'failed': return 'memberStatus.failed'
+    case 'superseded': return 'memberStatus.superseded'
   }
 }
 
@@ -54,6 +55,7 @@ function memberDotState(status: Exclude<MemberStatus, 'inactive'>): StateDotStat
     case 'running':
     case 'provisioning': return 'ongoing'
     case 'failed': return 'error'
+    case 'superseded': return 'idle'
   }
 }
 
@@ -81,9 +83,13 @@ function TeamMemberRow({
   const model = useSessions(state => state.projectionsBySession[member.id]?.values.modelSelection?.next?.model)
   const running = useSessionStatus(state => state.get(member.id)?.running)
   const summaryRunning = useSessions(state => state.byId[member.id]?.running)
-  const status: MemberStatus = member.phase === 'active'
-    ? (running ?? summaryRunning) === true ? 'running' : 'inactive'
-    : member.phase
+  // A superseded member keeps its row for history and stays openable, but it
+  // never runs again, so its live turn activity is not reported.
+  const status: MemberStatus = member.supersededBy !== undefined
+    ? 'superseded'
+    : member.phase === 'active'
+      ? (running ?? summaryRunning) === true ? 'running' : 'inactive'
+      : member.phase
   const isCurrent = member.id === sessionId
   const highlightCurrent = isCurrent && memberCount > 1
   const inert = isCurrent || status === 'failed' || status === 'provisioning'

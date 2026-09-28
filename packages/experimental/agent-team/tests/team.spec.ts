@@ -112,7 +112,11 @@ function spawn(
   ctx: Context,
   lead: Agent,
   name: string,
-  options: { context?: 'fresh' | 'fork'; provider?: string } = {},
+  options: {
+    context?: 'fresh' | 'fork'
+    provider?: string
+    agentOptions?: { provider?: string; model?: string; reasoningEffort?: string }
+  } = {},
 ) {
   const context = options.context ?? 'fresh'
   return ctx.agentTeams.spawnTeammate(lead, {
@@ -121,8 +125,21 @@ function spawn(
     prompt: content(`${name} initial`),
     context,
     provider: options.provider ?? (context === 'fork' ? 'fork' : 'spawn'),
+    ...options.agentOptions === undefined ? {} : { agentOptions: options.agentOptions },
     signal: SIGNAL,
   })
+}
+
+/**
+ * Settle the next spawn without a real continuable child. These cases assert
+ * durable roster and task edges, which the provider does not participate in.
+ */
+function settleNextSpawn(ctx: Context): void {
+  vi.spyOn(teamInternals(ctx).roster, 'checkpointInitialPrompt').mockResolvedValueOnce()
+  vi.spyOn(ctx.subagents, 'startContinuable').mockImplementationOnce(async spec => ({
+    childId: spec.childId!,
+    messageId: createUserMessage({ content: content('accepted'), source: { kind: 'user' } }).id,
+  }))
 }
 
 async function waitNoAgent(ctx: Context, id: SessionId): Promise<void> {
@@ -314,6 +331,39 @@ describe('Team identity and provisioning', () => {
     await abortedFiber.dispose()
   })
 
+  it('reports why a child that failed its first turn never accepted its prompt', async () => {
+    // The child claims its initial prompt from the inbox, then its first
+    // request is refused and the turn ends in error. Judged by acceptance
+    // alone that reads as a delivery failure; the recorded turn failure is the
+    // reason, and the Lead needs it to correct the call instead of repeating it.
+    const { ctx } = await setup([])
+    const internal = teamInternals(ctx).roster
+    let child: Session | undefined
+    const fiber = await ctx.plugin(Object.assign(function failedFirstTurnFixture(childCtx: Context) {
+      child = childCtx.sessions.create(SessionId('failed-first-turn-child'))
+    }, { inject: ['sessions'] }))
+    if (child === undefined) throw new Error('failed-first-turn fixture did not create its Session')
+    const initial = createUserMessage({ content: content('verify'), source: { kind: 'user' } })
+    child.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [initial] })
+    child.append('turn/start', { turn: 1 })
+    child.append('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] })
+    child.append('turn/end', {
+      turn: 1,
+      reason: {
+        kind: 'error',
+        error: { message: 'provider "p" model "m" does not support reasoning effort "xhigh"', code: 'UNKNOWN' },
+      },
+    })
+    const persisted = await ctx.sessionPersistence.create(child.header)
+    await persisted.append(child.snapshotEvents())
+    await persisted.close()
+    await fiber.dispose()
+
+    const rejected = internal.checkpointInitialPrompt(child.id, initial.id, SIGNAL)
+    await expect(rejected).rejects.toMatchObject({ code: 'TEAM_PROVISIONING_CONFLICT' })
+    await expect(rejected).rejects.toThrow('does not support reasoning effort "xhigh"')
+  })
+
   it('drains an accepted child when its initial durability checkpoint fails', async () => {
     const { ctx, lead } = await setup(['hang'])
     vi.spyOn(teamInternals(ctx).roster, 'checkpointInitialPrompt')
@@ -420,6 +470,135 @@ describe('Team identity and provisioning', () => {
     await teamInternals(second.ctx).roster.reconcileProvisioning(second.lead, SIGNAL)
     release.resolve(undefined)
     await rejected
+  })
+
+  it('keeps reporting a teammate-specific model after its Activation is gone', async () => {
+    // The runtime value disappears with the Activation, and the Lead route is
+    // the wrong answer once members differ: an inactive teammate must still be
+    // reported with the model it was created on.
+    const { ctx, lead } = await setup([])
+    settleNextSpawn(ctx)
+    const spawned = await spawn(ctx, lead, 'routed-worker', {
+      agentOptions: { provider: 'other-provider', model: 'other-model' },
+    })
+
+    expect(spawned.member).toMatchObject({ status: 'inactive', model: 'other-model' })
+    expect(durable(lead).members[0]).toMatchObject({ model: 'other-model' })
+    expect(ctx.agentTeams.listMembers(lead)[1]).toMatchObject({ name: 'routed-worker', model: 'other-model' })
+    // The Lead pseudo-row keeps its own route rather than the teammate's.
+    expect(ctx.agentTeams.listMembers(lead)[0]?.model).not.toBe('other-model')
+  })
+
+  it('supersedes a settled teammate without consuming its name or a roster slot', async () => {
+    // Recovering a bad route must not cost a second name and a second slot,
+    // and the superseded row must keep its own id, route, and outcome.
+    const { ctx, lead } = await setup([], { maxMembers: 2 })
+
+    settleNextSpawn(ctx)
+    const first = await spawn(ctx, lead, 'router', { agentOptions: { provider: 'bad', model: 'bad-model' } })
+    settleNextSpawn(ctx)
+    await spawn(ctx, lead, 'other-worker')
+    await expect(spawn(ctx, lead, 'third-worker')).rejects.toMatchObject({ code: 'TEAM_MEMBER_LIMIT' })
+
+    // Admitted while the roster is full: supersession releases the slot in the
+    // same transaction that claims it.
+    settleNextSpawn(ctx)
+    const second = await ctx.agentTeams.replaceTeammate(lead, {
+      name: 'router',
+      prompt: content('replacement task'),
+      agentOptions: { provider: 'good', model: 'good-model' },
+      signal: SIGNAL,
+    })
+    expect(second.member).toMatchObject({ name: 'router', model: 'good-model' })
+    expect(second.member.id).not.toBe(first.member.id)
+
+    const members = durable(lead).members
+    expect(members).toHaveLength(3)
+    expect(members[0]).toMatchObject({
+      id: first.member.id,
+      name: 'router',
+      model: 'bad-model',
+      phase: 'active',
+      supersededBy: second.member.id,
+    })
+    expect(members[2]).toMatchObject({ id: second.member.id, name: 'router', model: 'good-model', phase: 'active' })
+
+    // The chain stays visible, the name answers to the replacement, and the
+    // superseded row still does not free a slot for an unrelated member.
+    const rows = ctx.agentTeams.listMembers(lead)
+    // Two rows answer to one name, so the superseded one must not read as an
+    // ordinary inactive member.
+    expect(rows.find(row => row.id === first.member.id)).toMatchObject({
+      status: 'superseded',
+      supersededBy: second.member.id,
+    })
+    expect(rows.find(row => row.id === second.member.id)?.supersededBy).toBeUndefined()
+    expect(rows.find(row => row.id === second.member.id)?.status).not.toBe('superseded')
+    await expect(spawn(ctx, lead, 'router')).rejects.toMatchObject({ code: 'TEAM_MEMBER_NAME_TAKEN' })
+    await expect(spawn(ctx, lead, 'third-worker')).rejects.toMatchObject({ code: 'TEAM_MEMBER_LIMIT' })
+  })
+
+  it('moves in-progress work to the replacement and leaves finished work with its author', async () => {
+    // A superseded member can never run again, so work left on it would strand;
+    // but rewriting a completed task's owner would destroy the record of who
+    // actually produced it, which is why the member row is retained at all.
+    const { ctx, lead } = await setup([])
+    settleNextSpawn(ctx)
+    const first = await spawn(ctx, lead, 'router')
+
+    const carried = await ctx.agentTeams.createTask(lead, { subject: 'carried', description: 'in flight' })
+    const finished = await ctx.agentTeams.createTask(lead, { subject: 'finished', description: 'already done' })
+    const untouched = await ctx.agentTeams.createTask(lead, { subject: 'untouched', description: 'nobody owns it' })
+    for (const task of [carried, finished]) {
+      await ctx.agentTeams.updateTask(lead, {
+        taskId: task.id, expectedRevision: task.revision, action: 'reassign', owner: 'router',
+      })
+    }
+    const claimed = ctx.agentTeams.getTask(lead, finished.id)
+    await ctx.agentTeams.updateTask(lead, {
+      taskId: finished.id, expectedRevision: claimed.revision, action: 'complete',
+    })
+
+    settleNextSpawn(ctx)
+    const second = await ctx.agentTeams.replaceTeammate(lead, {
+      name: 'router',
+      prompt: content('take over'),
+      signal: SIGNAL,
+    })
+
+    expect(second.transferredTasks).toEqual([carried.id])
+    const durableTasks = durable(lead).tasks
+    expect(durableTasks.find(task => task.id === carried.id)).toMatchObject({
+      ownerId: second.member.id,
+      status: 'in_progress',
+    })
+    // The completed task still names the member that did the work.
+    expect(durableTasks.find(task => task.id === finished.id)).toMatchObject({
+      ownerId: first.member.id,
+      status: 'completed',
+    })
+    expect(durableTasks.find(task => task.id === untouched.id)?.ownerId).toBeUndefined()
+    // Transfer is an ordinary task mutation, so its revision advances.
+    expect(durableTasks.find(task => task.id === carried.id)?.revision)
+      .toBe(durableTasks.find(task => task.id === finished.id)!.revision)
+  })
+
+  it('refuses to replace an unknown or live teammate', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    await expect(ctx.agentTeams.replaceTeammate(lead, {
+      name: 'missing-worker',
+      prompt: content('x'),
+      signal: SIGNAL,
+    })).rejects.toMatchObject({ code: 'TEAM_MEMBER_NOT_FOUND' })
+
+    const spawned = await spawn(ctx, lead, 'busy-worker')
+    await waitRunning(ctx, spawned.member.id)
+    // A live Activation owns turns, an inbox, and possibly task ownership.
+    await expect(ctx.agentTeams.replaceTeammate(lead, {
+      name: 'busy-worker',
+      prompt: content('x'),
+      signal: SIGNAL,
+    })).rejects.toMatchObject({ code: 'TEAM_MEMBER_LIVE' })
   })
 
   it('validates names and permits only the Lead to create or interrupt teammates', async () => {

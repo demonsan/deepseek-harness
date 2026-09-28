@@ -68,6 +68,22 @@ function classifyPiAiError(message: string): string {
 }
 
 /**
+ * Whether a finish reports that the request referenced an item created by a
+ * different Azure OpenAI resource.
+ *
+ * Replayed reasoning items and message ids belong to the backend resource
+ * that issued them. When a gateway routes the next request to a different
+ * resource behind the same provider name — typical after a long idle gap —
+ * that resource rejects the request with this 400 before producing anything.
+ * @param reason - one terminal finish reason.
+ * @returns whether retrying without replay state can succeed.
+ */
+export function isCrossResourceItemFailure(reason: FinishReason): boolean {
+  return reason.kind === 'error'
+    && /created under a different Azure OpenAI resource/i.test(reason.failure.message)
+}
+
+/**
  * Map a terminal pi-ai event to the harness finish reason.
  * @param message - the assistant message carried by the `done` or `error` event.
  * @param contextWindow - resolved catalog capacity for usage-based overflow detection.

@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-19-duplication-safe-tool-scheduler-symbol.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-19-duplication-safe-tool-scheduler-symbol.md
+/agent-note-duplication-safe-tool-scheduler-symbol-under-source-launch:
+  en: 8c2dd3d058fc96a1
+  zh: 8e0e1dcc9491a2e7
+/agent-note-duplication-safe-tool-scheduler-symbol-under-source-launch/problem:
+  en: 2418a007bb8b383f
+  zh: 7cc58f31cc427325
+/agent-note-duplication-safe-tool-scheduler-symbol-under-source-launch/decision:
+  en: e4c2bc089e99d335
+  zh: f25d8fe0f4883a63
+/agent-note-duplication-safe-tool-scheduler-symbol-under-source-launch/alternatives-considered:
+  en: b1dc11361c97ca81
+  zh: 539cb19f7ad94ea8
+/agent-note-duplication-safe-tool-scheduler-symbol-under-source-launch/consequences:
+  en: 86ae4b286d4b9138
+  zh: 993b1de7cd7254cf

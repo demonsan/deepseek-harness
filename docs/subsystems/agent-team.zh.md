@@ -16,12 +16,25 @@ interface TeamMemberSnapshot {
   readonly description: string
   readonly provider: string
   readonly context: 'fresh' | 'fork'
+  /**
+   * Effective conversation model at creation. Durable because the runtime value
+   * disappears with the Activation: without it an inactive teammate would be
+   * reported with the Lead's model, which is wrong as soon as members differ.
+   */
+  readonly model?: string
   readonly phase: TeamMemberPhase
   readonly error?: string
+  /**
+   * Identity of the member that replaced this one. Supersession is orthogonal
+   * to {@link phase}: a superseded row keeps the provisioning outcome it
+   * actually reached, so "which route ran this work, and did it succeed?"
+   * stays answerable after a replacement. A row carrying it is final.
+   */
+  readonly supersededBy?: SessionId
 }
 ```
 
-每个 member 都从 `provisioning` 开始，并且只到达一个终态 roster phase：`active` 或 `failed`。roster 的 `running`／`inactive` 状态单独派生，绝不会重写该记录。
+每个 member 都从 `provisioning` 开始，并且只到达一个终态 roster phase：`active` 或 `failed`。roster 的 `running`／`inactive` 状态单独派生，绝不会重写该记录。已结束的 member 只接受一条额外的边：supersession——它设置 `supersededBy` 且不改写其他任何字段，因此该行保留它实际达到的结果，而名字与 roster 槽位移交给替代者。
 
 ## 持久 mailbox
 
@@ -88,6 +101,8 @@ interface TeamMemberProjection {
   /** Durable lifecycle; the Lead row is always `active`. Turn activity comes from Session status. */
   readonly phase: TeamMemberPhase
   readonly error?: string
+  /** Replacement that took this member's name; a superseded member never runs again. */
+  readonly supersededBy?: SessionId
 }
 ```
 
@@ -160,6 +175,14 @@ listMembers(agent: Agent): TeamMemberView[]
  * @returns the active roster row.
  */
 async spawnTeammate(caller: Agent, request: SpawnTeammateRequest): Promise<SpawnTeammateResult>
+
+/**
+ * Replace one settled teammate with a new route under the same name.
+ * @param caller - exact live Lead Agent.
+ * @param request - teammate name, replacement prompt, optional route, and cancellation.
+ * @returns the replacement's active roster row.
+ */
+async replaceTeammate(caller: Agent, request: ReplaceTeammateRequest): Promise<ReplaceTeammateResult>
 
 /**
  * Queue one durable peer message, then attempt immediate delivery.

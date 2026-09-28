@@ -29,3 +29,23 @@ export function messageAccepted(
   return events.some(event => event.type === 'user/message' && predicate(event.data))
     || pendingInboxMessages(events).some(predicate)
 }
+
+/**
+ * The failure that ended a Session's first turn, if it ended in error.
+ *
+ * A child whose first request is refused — an effort its model does not
+ * offer, an unreachable route — claims its initial prompt from the inbox and
+ * then ends the turn without ever recording it as history. Reading only
+ * acceptance, that looks like a prompt that was never delivered; this is the
+ * reason it was not.
+ * @param events - one Session's non-inherited event suffix.
+ * @returns the recorded failure message, or undefined.
+ */
+export function firstTurnFailure(events: readonly SessionEvent[]): string | undefined {
+  for (const event of events) {
+    if (event.type !== 'turn/end') continue
+    const reason = event.data.reason
+    return reason.kind === 'error' ? reason.error.message : undefined
+  }
+  return undefined
+}

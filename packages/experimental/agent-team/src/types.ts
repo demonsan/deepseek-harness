@@ -50,8 +50,21 @@ export interface TeamMemberSnapshot {
   readonly description: string
   readonly provider: string
   readonly context: 'fresh' | 'fork'
+  /**
+   * Effective conversation model at creation. Durable because the runtime value
+   * disappears with the Activation: without it an inactive teammate would be
+   * reported with the Lead's model, which is wrong as soon as members differ.
+   */
+  readonly model?: string
   readonly phase: TeamMemberPhase
   readonly error?: string
+  /**
+   * Identity of the member that replaced this one. Supersession is orthogonal
+   * to {@link phase}: a superseded row keeps the provisioning outcome it
+   * actually reached, so "which route ran this work, and did it succeed?"
+   * stays answerable after a replacement. A row carrying it is final.
+   */
+  readonly supersededBy?: SessionId
 }
 
 /** Current runtime-enriched roster row. */
@@ -59,11 +72,18 @@ export interface TeamMemberView {
   readonly id: SessionId
   readonly name: string
   readonly role: 'lead' | 'teammate'
-  readonly status: 'running' | 'inactive' | 'provisioning' | 'failed'
+  /**
+   * `superseded` is a roster fact rather than a runtime one: a replaced member
+   * never runs again, so reporting its last runtime status would leave it
+   * indistinguishable from the live member that took its name.
+   */
+  readonly status: 'running' | 'inactive' | 'provisioning' | 'failed' | 'superseded'
   readonly description?: string
   readonly provider?: string
   readonly context?: 'fresh' | 'fork'
   readonly model?: string
+  /** Set when a later member replaced this row; the replacement shares its name. */
+  readonly supersededBy?: SessionId
   readonly diagnostics: string[]
 }
 
@@ -104,6 +124,8 @@ export interface TeamMemberProjection {
   /** Durable lifecycle; the Lead row is always `active`. Turn activity comes from Session status. */
   readonly phase: TeamMemberPhase
   readonly error?: string
+  /** Replacement that took this member's name; a superseded member never runs again. */
+  readonly supersededBy?: SessionId
 }
 
 /**
@@ -169,7 +191,44 @@ export interface SpawnTeammateRequest {
   readonly prompt: ContentBlock[]
   readonly context: 'fresh' | 'fork'
   readonly provider: string
+  /**
+   * Optional child LLM route for this teammate, merged over the Lead route by
+   * the continuation service. Omit to inherit the Lead's provider and model.
+   */
+  readonly agentOptions?: TeammateAgentOptions
   readonly signal: AbortSignal
+}
+
+/** Exact child LLM route overrides for one teammate. */
+export interface TeammateAgentOptions {
+  readonly provider?: string
+  readonly model?: string
+  readonly reasoningEffort?: string
+}
+
+/**
+ * Input for replacing one settled teammate with a new route under the same
+ * name. The superseded row keeps its own id, history, route, and outcome; the
+ * replacement is a new member, never a mutation of the old one.
+ */
+export interface ReplaceTeammateRequest {
+  readonly name: string
+  readonly prompt: ContentBlock[]
+  /**
+   * Child LLM route for the replacement. Omit to inherit the Lead route, which
+   * is how a replacement recovers a teammate stuck on a bad explicit route.
+   */
+  readonly agentOptions?: TeammateAgentOptions
+  readonly signal: AbortSignal
+}
+
+/** Result after one replacement reaches its durable active edge. */
+export interface ReplaceTeammateResult extends SpawnTeammateResult {
+  /**
+   * In-progress tasks moved from the superseded member, in board order.
+   * Completed and deleted tasks keep the owner that produced them.
+   */
+  readonly transferredTasks: TeamTaskId[]
 }
 
 /** Result after one teammate reaches a durable active or failed edge. */

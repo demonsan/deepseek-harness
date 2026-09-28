@@ -22,7 +22,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -196,6 +196,15 @@ const STATIC_ENFORCEMENT: Record<SelectedRunner['runner'], SandboxEnforcement> =
 function assertPositiveFinite(name: string, value: number): void {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`sandbox-local: ${name} must be a positive finite number`)
+  }
+}
+
+/** A cached private temp capability is usable only while its directory exists. */
+function isExistingDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
   }
 }
 
@@ -416,7 +425,10 @@ export class LocalSandboxProvider extends SandboxProvider {
     }
     const key = JSON.stringify([String(sessionId), workspaceRoot])
     const existing = this.tempCapabilities.get(key)
-    if (existing !== undefined) return existing
+    if (existing !== undefined) {
+      if (isExistingDirectory(existing.dir)) return existing
+      this.evictTempCapability(key, existing)
+    }
     const tempDir = mkdtempSync(join(tmpdir(), 'dsh-'))
     const tempSid = tempWriteSid(tempDir)
     let grant: AclWriteGrant | undefined
@@ -445,6 +457,20 @@ export class LocalSandboxProvider extends SandboxProvider {
     const capability = { dir: tempDir, writeSid: tempSid, grant }
     this.tempCapabilities.set(key, capability)
     return capability
+  }
+
+  /** Evict a vanished private temp directory without reusing its old path or SID. */
+  private evictTempCapability(key: string, capability: AclTempCapability): void {
+    this.tempCapabilities.delete(key)
+    try {
+      capability.grant.dispose()
+    } catch (error) {
+      // The directory may have been deleted externally, making DACL revocation
+      // impossible. dispose() still frees its SIDs; report and provision a new
+      // random temp capability instead of handing the dead path to the runner.
+      this.ctx.logger.warn(`sandbox-local: windows-acl temp directory ${capability.dir} vanished; stale grant cleanup reported failure(s)`)
+      this.ctx.logger.warn(error)
+    }
   }
 
   /**

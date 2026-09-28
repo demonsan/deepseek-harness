@@ -660,6 +660,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SpeechCatalog: 'voice-input.md',
   TranscriptionRequest: 'voice-input.md',
   CreateTeamTaskRequest: 'agent-team.md',
+  ReplaceTeammateRequest: 'agent-team.md',
+  ReplaceTeammateResult: 'agent-team.md',
   SendTeamMessageRequest: 'agent-team.md',
   SendTeamMessageResult: 'agent-team.md',
   SpawnTeammateRequest: 'agent-team.md',

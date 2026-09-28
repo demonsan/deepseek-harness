@@ -4,19 +4,19 @@
 #   pnpm run verify-translation-pairing --write packages/experimental/tool-agent-team/README.md
 /:
   en: 770d44b09466af9a
-  zh: b8b84ed9464ce41b
+  zh: a7af183edf0e0e3d
 /deepseek-ai-dsh-experimental-tool-agent-team:
   en: 0b01a243291821bc
   zh: 0dadd38d709ae9bd
 /deepseek-ai-dsh-experimental-tool-agent-team/summary:
-  en: 0cce9e5ec6d1946a
-  zh: 6bc76243f494815c
+  en: bff351ad2709ed6a
+  zh: 74d0403305b2ba80
 /deepseek-ai-dsh-experimental-tool-agent-team/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
 /deepseek-ai-dsh-experimental-tool-agent-team/use-this-package:
-  en: 1e928b05f250c945
-  zh: 0281800e08a58fce
+  en: 7c8514ec1d4c3f9f
+  zh: ac319e1d8631406a
 /deepseek-ai-dsh-experimental-tool-agent-team/use-this-package/when-to-choose-it:
   en: 5261677934ea6e71
   zh: a8bafd94d2b293ec
@@ -24,8 +24,8 @@
   en: 9af650a79711b3b3
   zh: 2930360011b544e0
 /deepseek-ai-dsh-experimental-tool-agent-team/use-this-package/what-the-model-can-do:
-  en: be42811bbcc3b438
-  zh: 014bd055ca694315
+  en: 8da3f5f1c52cd324
+  zh: 4f4f123b7aebb202
 /deepseek-ai-dsh-experimental-tool-agent-team/use-this-package/what-success-and-failure-look-like:
   en: 259e9d39e1d1579a
   zh: c61feed86e1ba2d2
@@ -36,11 +36,11 @@
   en: 445806c13f887a09
   zh: 8b2b67044abfd65a
 /deepseek-ai-dsh-experimental-tool-agent-team/understand-the-implementation/source-map:
-  en: 0e9eb6c8bebebbb6
-  zh: 6acd0bc8af90ce0a
+  en: dadf8c4054a36116
+  zh: 087224d3dff983f1
 /deepseek-ai-dsh-experimental-tool-agent-team/understand-the-implementation/policy-and-tools:
-  en: 3e730667f904c7bd
-  zh: 7f48e6c07c615d77
+  en: 444fafddec445d2b
+  zh: cfae4748282dbf83
 /deepseek-ai-dsh-experimental-tool-agent-team/understand-the-implementation/scoped-registration-and-teardown:
   en: c2b29f27a74c02c0
   zh: 026f2ef93dd604d8
@@ -54,8 +54,8 @@
   en: 8e1e365ff3b0dfb2
   zh: c6c91fbf1e1df934
 /deepseek-ai-dsh-experimental-tool-agent-team/model-experience/team-policy-and-tools/what-the-model-sees:
-  en: 17ed13a2c408baa9
-  zh: 4bc24f3de8155eb3
+  en: 9e663fb4cbb2201d
+  zh: db15fa6703685cf3
 /deepseek-ai-dsh-experimental-tool-agent-team/model-experience/team-policy-and-tools/token-effect:
   en: fe314af98a2130b8
   zh: ea89cb40dd11d57c

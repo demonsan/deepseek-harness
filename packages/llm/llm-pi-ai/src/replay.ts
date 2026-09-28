@@ -259,3 +259,26 @@ export function toPiAssistant(message: HarnessAssistantMessage, onDegrade?: (rea
     return foreignAssistant(message)
   }
 }
+
+/**
+ * Drop native replay state from every model-produced assistant message.
+ *
+ * Replay state carries the ids and signatures one backend issued — reasoning
+ * items, message ids, response ids. pi-ai replays them only for same-route
+ * history, but "same route" is a provider name, and a gateway can serve one
+ * provider name from several backend resources. A resource asked about an
+ * item another one created rejects the whole request. Without replay state
+ * each message takes the provider-neutral conversion, which carries the same
+ * durable content and references nothing backend-specific.
+ * @param messages - request history.
+ * @returns a copy whose assistant messages hold no replay state.
+ */
+export function withoutReplayState<T extends { role: string }>(messages: readonly T[]): T[] {
+  return messages.map((message) => {
+    if (message.role !== 'assistant') return message
+    const source = (message as { source?: { kind?: string; replayState?: unknown } }).source
+    if (source?.kind !== 'model' || source.replayState === undefined) return message
+    const { replayState: _replayState, ...rest } = source
+    return { ...message, source: rest }
+  })
+}
