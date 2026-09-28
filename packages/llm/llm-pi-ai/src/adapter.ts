@@ -59,6 +59,7 @@ import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attac
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
+import { errorBodyFetch } from './error-body-fetch.ts'
 import { createModels, getSupportedThinkingLevels } from './models.ts'
 import { withoutReplayState } from './replay.ts'
 import { isCrossResourceItemFailure, toStreamChunks } from './stream.ts'
@@ -385,6 +386,10 @@ export class PiAiAdapter extends LlmAdapter {
           ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
           ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
           signal: watchdog.signal,
+          // Gateway-wrapped error bodies reach the SDK in the standard shape it
+          // can parse, so the real provider message (and any overflow wording)
+          // survives to classification instead of degrading to "(no body)".
+          fetch: errorBodyFetch(),
           // Profile headers are deployment-owned; attribution names are
           // Harness-owned and therefore win collisions.
           headers: requestHeaders(profile.headers),
