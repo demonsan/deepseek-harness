@@ -349,4 +349,61 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
       cleanup()
     }
   })
+
+  it('re-provisions when the cached private temp directory vanished', async () => {
+    try {
+      const { sandbox, fiber } = await setup()
+      const ws = workspaceRoot()
+      scratch.push(ws)
+      const policy: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId('vanished') }
+      const firstTemp = flag((await sandbox.confine(['true'], policy)).argv, '--temp') ?? ''
+      expect(existsSync(firstTemp)).toBe(true)
+      rmSync(firstTemp, { recursive: true, force: true })
+
+      const second = await sandbox.confine(['true'], policy)
+      const secondTemp = flag(second.argv, '--temp') ?? ''
+      expect(secondTemp).not.toBe(firstTemp)
+      expect(existsSync(secondTemp)).toBe(true)
+      expect(existsSync(firstTemp)).toBe(false)
+      expect(flag(second.argv, '--write-sid')).toBe(WORKSPACE_SID)
+      expect(flag(second.argv, '--temp-write-sid')).toBe(`TEMP:${secondTemp}`)
+      expect(mockState.grants).toHaveLength(3) // standing workspace, old temp, new temp
+      expect(mockState.grants[1]).toEqual(expect.objectContaining({ disposed: true }))
+      expect(mockState.grants[2]).toEqual(expect.objectContaining({ disposed: false }))
+      expect((await sandbox.confine(['true'], policy)).argv).toEqual(second.argv)
+
+      await fiber.dispose()
+      expect(mockState.grants.every(grant => grant.disposed)).toBe(true)
+      expect(existsSync(secondTemp)).toBe(false)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('reports a failed stale-grant revoke while replacing the vanished temp directory', async () => {
+    try {
+      const { ctx, sandbox, fiber } = await setup()
+      const ws = workspaceRoot()
+      scratch.push(ws)
+      const policy: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId('vanished-revoke-fail') }
+      const firstTemp = flag((await sandbox.confine(['true'], policy)).argv, '--temp') ?? ''
+      rmSync(firstTemp, { recursive: true, force: true })
+      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+      mockState.disposeFailure = new Error('revoke of vanished path exploded')
+      const secondTemp = flag((await sandbox.confine(['true'], policy)).argv, '--temp') ?? ''
+      mockState.disposeFailure = undefined
+      expect(secondTemp).not.toBe(firstTemp)
+      expect(existsSync(secondTemp)).toBe(true)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('vanished; stale grant cleanup reported failure(s)'))
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ message: 'revoke of vanished path exploded' }))
+      warn.mockClear()
+      await fiber.dispose()
+      expect(warn).not.toHaveBeenCalled()
+      expect(mockState.grants[0]!.disposed).toBe(true)
+      expect(mockState.grants[1]!.disposed).toBe(false) // evicted, never re-disposed at teardown
+      expect(mockState.grants[2]!.disposed).toBe(true)
+    } finally {
+      cleanup()
+    }
+  })
 })
