@@ -1466,7 +1466,7 @@ export interface Config {
   defaultContextWindow: Volatile<number>
   /** Advisory models shown by discovery consumers; defaults to V41 Flash and V4 Pro. */
   models: Volatile<DeepSeekCatalogModel[]>
-  /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
+  /** Maximum provider idle time while one stream read is outstanding (default one minute). */
   streamIdleTimeoutMs: Volatile<number>
   /** Maximum accumulated file-referenced image bytes per chat request (default 128 MiB). */
   maxRequestFilesBytes: Volatile<number>
